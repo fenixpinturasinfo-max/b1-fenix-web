@@ -21,7 +21,7 @@ export function Categories() {
             <a
               key={c.id}
               href="#ofertas"
-              className="group flex flex-col items-center gap-3 rounded-2xl border border-slate-200 bg-white p-6 text-center transition hover:-translate-y-1 hover:border-fenix-400 hover:shadow-card"
+              className="group flex flex-col items-center gap-3 rounded-2xl border border-slate-200 bg-white p-6 text-center transition hover:-translate-y-1 hover:border-electric-500 hover:shadow-card"
             >
               <span className="text-3xl transition group-hover:scale-110" aria-hidden="true">
                 {icons[c.id]}

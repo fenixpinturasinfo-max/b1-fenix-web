@@ -42,7 +42,7 @@ export function KitWizard() {
                 key={g.id}
                 type="button"
                 onClick={() => pickGoal(g.id)}
-                className="group flex flex-col items-center gap-2 rounded-2xl border-2 border-slate-200 p-6 text-center transition hover:-translate-y-0.5 hover:border-fenix-500"
+                className="group flex flex-col items-center gap-2 rounded-2xl border-2 border-slate-200 p-6 text-center transition hover:-translate-y-0.5 hover:border-electric-500"
               >
                 <span className="text-4xl" aria-hidden="true">{g.icon}</span>
                 <span className="font-bold text-navy-950">{g.label}</span>
@@ -67,7 +67,7 @@ export function KitWizard() {
                   setSize(s.id);
                   setStep("result");
                 }}
-                className="rounded-2xl border-2 border-slate-200 p-6 text-center font-bold text-navy-950 transition hover:-translate-y-0.5 hover:border-fenix-500"
+                className="rounded-2xl border-2 border-slate-200 p-6 text-center font-bold text-navy-950 transition hover:-translate-y-0.5 hover:border-electric-500"
               >
                 {s.label}
               </button>
@@ -118,7 +118,7 @@ export function KitWizard() {
               href={buildAdvisoryUrl()}
               target="_blank"
               rel="noopener noreferrer"
-              className="flex h-12 items-center justify-center rounded-xl border border-slate-300 font-semibold text-navy-950 transition hover:border-fenix-500"
+              className="flex h-12 items-center justify-center rounded-xl border border-slate-300 font-semibold text-navy-950 transition hover:border-electric-500"
             >
               Prefiero que me asesore un experto
             </a>

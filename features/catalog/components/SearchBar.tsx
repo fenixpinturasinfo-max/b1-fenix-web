@@ -47,7 +47,7 @@ export function SearchBar() {
           setOpen(true);
         }}
         onFocus={() => setOpen(true)}
-        className="h-11 w-full rounded-xl border border-slate-200 bg-cloud px-4 pr-9 text-sm text-navy-950 outline-none transition focus:border-fenix-500 focus:bg-white"
+        className="h-11 w-full rounded-xl border border-slate-200 bg-cloud px-4 pr-9 text-sm text-navy-950 outline-none transition focus:border-electric-500 focus:bg-white"
       />
       <svg
         aria-hidden="true"

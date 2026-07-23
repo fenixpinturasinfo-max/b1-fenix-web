@@ -1,14 +1,14 @@
 import { Container } from "@/components/ui/Container";
 import { SectionTitle } from "@/components/ui/SectionTitle";
-import { locations } from "@/features/stores/data/locations";
+import type { LocalPublico } from "@/features/stores/lib";
 
-export function Stores() {
+export function Stores({ locales }: { locales: LocalPublico[] }) {
   return (
     <section className="bg-cloud py-14 sm:py-20">
       <Container>
         <SectionTitle id="locales" kicker="Locales" title="Visítanos" />
         <div className="grid gap-6 sm:grid-cols-2">
-          {locations.map((l) => (
+          {locales.map((l) => (
             <article
               key={l.id}
               className="flex flex-col gap-3 overflow-hidden rounded-2xl border border-slate-200 bg-white p-7"
@@ -22,12 +22,12 @@ export function Stores() {
               />
               <h3 className="text-xl font-bold text-navy-950">{l.nombre}</h3>
               <p className="text-slate-600">📍 {l.direccion}, {l.comuna}</p>
-              <p className="text-sm text-slate-500">🕒 {l.horario}</p>
+              {l.horario && <p className="text-sm text-slate-500">🕒 {l.horario}</p>}
               <a
                 href={l.mapsUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="mt-2 inline-flex h-11 w-fit items-center rounded-xl border border-slate-300 px-5 font-semibold text-navy-950 transition hover:border-fenix-500 hover:text-fenix-600"
+                className="mt-2 inline-flex h-11 w-fit items-center rounded-xl border border-slate-300 px-5 font-semibold text-navy-950 transition hover:border-electric-500 hover:text-electric-600"
               >
                 Cómo llegar →
               </a>

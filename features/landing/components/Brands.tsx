@@ -11,7 +11,7 @@ export function Brands() {
           {brands.map((b) => (
             <li
               key={b}
-              className="rounded-full border border-slate-200 bg-white px-6 py-3 font-bold uppercase tracking-wider text-slate-600 transition hover:border-fenix-400 hover:text-navy-950"
+              className="rounded-full border border-slate-200 bg-white px-6 py-3 font-bold uppercase tracking-wider text-slate-600 transition hover:border-electric-500 hover:text-navy-950"
             >
               {b}
             </li>

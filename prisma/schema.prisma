@@ -1,0 +1,224 @@
+// Modelo de datos B1 Fenix — Inventario multi-local + POS
+// Ver docs/UX-LANDING.md para el contexto de producto.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../lib/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─────────────────────────── Usuarios y roles ───────────────────────────
+
+enum Rol {
+  ADMINISTRADOR // acceso total, todos los locales, reportes consolidados
+  JEFE_LOCAL    // gestiona inventario y ventas de su local
+  VENDEDOR      // POS de su local: ventas y arqueo
+  BODEGA        // movimientos de inventario de su local
+}
+
+model Usuario {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  nombre       String
+  rol          Rol
+  activo       Boolean  @default(true)
+  // Local asignado (null solo para ADMINISTRADOR)
+  localId      String?
+  local        Local?   @relation(fields: [localId], references: [id])
+  creadoEn     DateTime @default(now())
+
+  ventas       Venta[]
+  movimientos  MovimientoInventario[]
+  cajaSesiones CajaSesion[]
+
+  @@index([localId])
+}
+
+// ─────────────────────────── Locales ───────────────────────────
+
+model Local {
+  id        String   @id @default(cuid())
+  codigo    String   @unique // ej: "SB", "BU"
+  nombre    String
+  direccion String
+  comuna    String
+  horario   String?
+  activo    Boolean  @default(true)
+  creadoEn  DateTime @default(now())
+
+  usuarios     Usuario[]
+  stocks       StockLocal[]
+  ventas       Venta[]
+  movimientos  MovimientoInventario[]
+  cajaSesiones CajaSesion[]
+}
+
+// ─────────────────────────── Catálogo ───────────────────────────
+
+model Categoria {
+  id        String     @id @default(cuid())
+  slug      String     @unique // ej: "pinturas-lacas"
+  nombre    String
+  productos Producto[]
+}
+
+model Producto {
+  id             String    @id @default(cuid())
+  sku            String    @unique
+  codigoBarra    String?   @unique
+  slug           String    @unique
+  nombre         String
+  marca          String
+  categoriaId    String
+  categoria      Categoria @relation(fields: [categoriaId], references: [id])
+  // Lista de precios UNIFICADA: un precio para todos los locales
+  precioCosto    Int       @default(0) // CLP, sin decimales
+  precioVenta    Int
+  precioAnterior Int? // para mostrar ofertas
+  imagen         String?
+  destacado      Boolean   @default(false)
+  activo         Boolean   @default(true)
+  creadoEn       DateTime  @default(now())
+  actualizadoEn  DateTime  @updatedAt
+
+  stocks       StockLocal[]
+  detalleVenta DetalleVenta[]
+  movimientos  MovimientoInventario[]
+
+  @@index([categoriaId])
+  @@index([marca])
+}
+
+// ─────────────────────────── Inventario por local ───────────────────────────
+
+model StockLocal {
+  id        String  @id @default(cuid())
+  productoId String
+  producto  Producto @relation(fields: [productoId], references: [id])
+  localId   String
+  local     Local    @relation(fields: [localId], references: [id])
+  cantidad  Int      @default(0)
+  stockMin  Int      @default(0) // alerta de reposición
+  stockMax  Int?     // tope sugerido de compra
+  ubicacion String?  // ej: "Pasillo 2 - Estante B - Nivel 3"
+  actualizadoEn DateTime @updatedAt
+
+  @@unique([productoId, localId])
+  @@index([localId])
+}
+
+enum TipoMovimiento {
+  ENTRADA              // compra / recepción
+  SALIDA_VENTA         // descuento automático por venta POS
+  AJUSTE               // corrección de inventario (+/-)
+  MERMA                // pérdida, daño, vencimiento
+  TRANSFERENCIA_SALIDA // envío a otro local
+  TRANSFERENCIA_ENTRADA // recepción desde otro local
+}
+
+model MovimientoInventario {
+  id         String         @id @default(cuid())
+  tipo       TipoMovimiento
+  productoId String
+  producto   Producto       @relation(fields: [productoId], references: [id])
+  localId    String
+  local      Local          @relation(fields: [localId], references: [id])
+  // Positivo = entra stock, negativo = sale stock
+  cantidad   Int
+  usuarioId  String
+  usuario    Usuario        @relation(fields: [usuarioId], references: [id])
+  // Referencias cruzadas: venta asociada o transferencia hermana
+  ventaId    String?
+  venta      Venta?         @relation(fields: [ventaId], references: [id])
+  transferenciaPar String?  // id del movimiento espejo en el otro local
+  nota       String?
+  creadoEn   DateTime       @default(now())
+
+  @@index([productoId, localId])
+  @@index([localId, creadoEn])
+}
+
+// ─────────────────────────── Ventas (POS) ───────────────────────────
+
+enum MedioPago {
+  EFECTIVO
+  DEBITO
+  CREDITO
+  TRANSFERENCIA
+}
+
+enum EstadoVenta {
+  COMPLETADA
+  ANULADA
+}
+
+model Venta {
+  id          String      @id @default(cuid())
+  // Correlativo por local para el ticket: SB-000123
+  correlativo Int
+  localId     String
+  local       Local       @relation(fields: [localId], references: [id])
+  usuarioId   String
+  usuario     Usuario     @relation(fields: [usuarioId], references: [id])
+  cajaSesionId String?
+  cajaSesion  CajaSesion? @relation(fields: [cajaSesionId], references: [id])
+  medioPago   MedioPago
+  estado      EstadoVenta @default(COMPLETADA)
+  subtotal    Int
+  descuento   Int         @default(0)
+  total       Int
+  creadoEn    DateTime    @default(now())
+
+  detalle     DetalleVenta[]
+  movimientos MovimientoInventario[]
+
+  @@unique([localId, correlativo])
+  @@index([localId, creadoEn])
+  @@index([cajaSesionId])
+}
+
+model DetalleVenta {
+  id           String   @id @default(cuid())
+  ventaId      String
+  venta        Venta    @relation(fields: [ventaId], references: [id], onDelete: Cascade)
+  productoId   String
+  producto     Producto @relation(fields: [productoId], references: [id])
+  cantidad     Int
+  // Precio congelado al momento de la venta
+  precioUnitario Int
+  subtotal     Int
+
+  @@index([ventaId])
+}
+
+// ─────────────────────────── Caja y arqueo ───────────────────────────
+
+enum EstadoCaja {
+  ABIERTA
+  CERRADA
+}
+
+model CajaSesion {
+  id            String     @id @default(cuid())
+  localId       String
+  local         Local      @relation(fields: [localId], references: [id])
+  usuarioId     String
+  usuario       Usuario    @relation(fields: [usuarioId], references: [id])
+  estado        EstadoCaja @default(ABIERTA)
+  // Arqueo
+  montoApertura Int        // efectivo inicial en caja
+  montoCierre   Int?       // efectivo contado al cierre
+  montoEsperado Int?       // apertura + ventas en efectivo
+  diferencia    Int?       // cierre - esperado (descuadre)
+  notaCierre    String?
+  abiertaEn     DateTime   @default(now())
+  cerradaEn     DateTime?
+
+  ventas Venta[]
+
+  @@index([localId, estado])
+}

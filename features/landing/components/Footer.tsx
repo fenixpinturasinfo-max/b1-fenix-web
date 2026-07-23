@@ -63,6 +63,11 @@ export function Footer() {
                 Instagram @pinturas.fenix
               </a>
             </li>
+            <li>
+              <a href="/login" className="text-mist/50 transition hover:text-white">
+                Acceso equipo
+              </a>
+            </li>
           </ul>
         </div>
       </Container>

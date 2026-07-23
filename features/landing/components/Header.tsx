@@ -14,13 +14,13 @@ const links = [
   { href: "#locales", label: "Locales" },
 ];
 
-export function Header() {
+export function Header({ comunas = "San Bernardo y Buin" }: { comunas?: string }) {
   const [menuOpen, setMenuOpen] = useState(false);
 
   return (
     <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/90 backdrop-blur-md">
       <div className="bg-flame py-1.5 text-center text-xs font-semibold text-white sm:text-sm">
-        🏪 Retiro en tienda San Bernardo y Buin · Pide por WhatsApp
+        🏪 Retiro en tienda {comunas} · Pide por WhatsApp
       </div>
       <Container className="flex h-16 items-center justify-between gap-4">
         <a href="#" className="flex items-center gap-2" aria-label="Pinturas Fenix, inicio">
@@ -55,6 +55,17 @@ export function Header() {
         </div>
 
         <div className="flex items-center gap-2">
+          <a
+            href="/login"
+            aria-label="Acceso equipo Fenix"
+            title="Acceso equipo"
+            className="flex h-11 w-11 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500 transition hover:border-electric-500 hover:text-navy-950"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+              <circle cx="12" cy="7" r="4" />
+            </svg>
+          </a>
           <CartButton />
           <button
             type="button"

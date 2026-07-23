@@ -2,15 +2,20 @@
 
 import { useEffect, useRef } from "react";
 import { cartTotal, useCart } from "../store";
-import { locations } from "@/features/stores/data/locations";
 import { formatCLP } from "@/lib/format";
 import { buildOrderUrl } from "@/lib/whatsapp";
 
-export function CartDrawer() {
+export interface CartLocal {
+  id: string;
+  nombre: string;
+  comuna: string;
+}
+
+export function CartDrawer({ locales }: { locales: CartLocal[] }) {
   const { items, localId, isOpen, close, setQty, remove, setLocal } = useCart();
   const panelRef = useRef<HTMLDivElement>(null);
   const total = cartTotal(items);
-  const local = locations.find((l) => l.id === localId) ?? locations[0];
+  const local = locales.find((l) => l.id === localId) ?? locales[0];
 
   useEffect(() => {
     if (!isOpen) return;
@@ -78,7 +83,7 @@ export function CartDrawer() {
                       type="button"
                       onClick={() => remove(product.sku)}
                       aria-label={`Quitar ${product.nombre}`}
-                      className="text-sm text-slate-400 transition hover:text-fenix-600"
+                      className="text-sm text-slate-400 transition hover:text-electric-600"
                     >
                       Quitar
                     </button>
@@ -116,11 +121,11 @@ export function CartDrawer() {
                 </label>
                 <select
                   id="local"
-                  value={localId}
+                  value={local?.id ?? ""}
                   onChange={(e) => setLocal(e.target.value)}
-                  className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-navy-950 outline-none focus:border-fenix-500"
+                  className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-navy-950 outline-none focus:border-electric-500"
                 >
-                  {locations.map((l) => (
+                  {locales.map((l) => (
                     <option key={l.id} value={l.id}>
                       {l.nombre} — {l.comuna}
                     </option>
@@ -138,7 +143,7 @@ export function CartDrawer() {
                     qty: i.qty,
                     subtotal: i.qty * i.product.precioVenta,
                   })),
-                  local.nombre,
+                  local?.nombre ?? "tienda",
                   total,
                 )}
                 target="_blank"

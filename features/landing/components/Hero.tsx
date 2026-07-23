@@ -2,13 +2,13 @@ import Image from "next/image";
 import { Container } from "@/components/ui/Container";
 import { buildAdvisoryUrl } from "@/lib/whatsapp";
 
-export function Hero() {
+export function Hero({ comunas = "San Bernardo · Buin" }: { comunas?: string }) {
   return (
     <section className="relative overflow-hidden bg-white">
       {/* Manchas de color del anillo fénix */}
       <div aria-hidden="true" className="pointer-events-none absolute inset-0">
         <div className="absolute -right-24 -top-24 h-96 w-96 rounded-full bg-[#ffb347]/30 blur-3xl" />
-        <div className="absolute -left-24 top-1/4 h-80 w-80 rounded-full bg-[#d6336c]/15 blur-3xl" />
+        <div className="absolute -left-24 top-1/4 h-80 w-80 rounded-full bg-[#2e5bff]/15 blur-3xl" />
         <div className="absolute bottom-0 right-1/3 h-72 w-72 rounded-full bg-[#ff7a45]/20 blur-3xl" />
       </div>
 
@@ -16,7 +16,7 @@ export function Hero() {
         <div className="text-center lg:text-left">
           <p className="mb-4 inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-1.5 text-sm font-semibold text-slate-700 shadow-sm">
             <span className="h-2 w-2 rounded-full bg-lime-400" aria-hidden="true" />
-            San Bernardo · Buin
+            {comunas}
           </p>
           <h1 className="text-4xl font-black leading-tight tracking-tight text-navy-950 sm:text-5xl lg:text-6xl">
             Especialistas en <span className="text-flame">pintura automotriz</span>

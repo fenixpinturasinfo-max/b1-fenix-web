@@ -5,11 +5,19 @@ import { categories, products } from "../data/products";
 import type { CategoryId } from "../types";
 import { ProductCard } from "./ProductCard";
 
+const PAGE_SIZE = 12;
+
 export function ProductExplorer() {
   const [filter, setFilter] = useState<CategoryId | "todos">("todos");
+  const [limit, setLimit] = useState(PAGE_SIZE);
 
-  const visible =
-    filter === "todos" ? products : products.filter((p) => p.categoria === filter);
+  const filtered = (
+    filter === "todos" ? products : products.filter((p) => p.categoria === filter)
+  )
+    // Destacados y ofertas primero
+    .slice()
+    .sort((a, b) => Number(b.destacado ?? false) - Number(a.destacado ?? false));
+  const visible = filtered.slice(0, limit);
 
   // Solo categorías con productos cargados
   const activeCategories = categories.filter((c) =>
@@ -21,12 +29,15 @@ export function ProductExplorer() {
       <div className="mb-8 flex flex-wrap gap-2" role="group" aria-label="Filtrar por categoría">
         <button
           type="button"
-          onClick={() => setFilter("todos")}
+          onClick={() => {
+            setFilter("todos");
+            setLimit(PAGE_SIZE);
+          }}
           aria-pressed={filter === "todos"}
           className={`h-10 rounded-full px-5 text-sm font-bold transition ${
             filter === "todos"
-              ? "bg-flame text-white"
-              : "border border-slate-300 bg-white text-slate-600 hover:border-fenix-500"
+              ? "bg-electric-600 text-white"
+              : "border border-slate-300 bg-white text-slate-600 hover:border-electric-500"
           }`}
         >
           Todos
@@ -35,12 +46,15 @@ export function ProductExplorer() {
           <button
             key={c.id}
             type="button"
-            onClick={() => setFilter(c.id)}
+            onClick={() => {
+              setFilter(c.id);
+              setLimit(PAGE_SIZE);
+            }}
             aria-pressed={filter === c.id}
             className={`h-10 rounded-full px-5 text-sm font-bold transition ${
               filter === c.id
-                ? "bg-flame text-white"
-                : "border border-slate-300 bg-white text-slate-600 hover:border-fenix-500"
+                ? "bg-electric-600 text-white"
+                : "border border-slate-300 bg-white text-slate-600 hover:border-electric-500"
             }`}
           >
             {c.nombre}
@@ -53,6 +67,18 @@ export function ProductExplorer() {
           <ProductCard key={p.sku} product={p} />
         ))}
       </div>
+
+      {filtered.length > limit && (
+        <div className="mt-8 text-center">
+          <button
+            type="button"
+            onClick={() => setLimit((n) => n + PAGE_SIZE)}
+            className="h-12 rounded-xl border-2 border-navy-950 px-8 font-bold text-navy-950 transition hover:bg-navy-950 hover:text-white"
+          >
+            Ver más productos ({filtered.length - limit} restantes)
+          </button>
+        </div>
+      )}
     </div>
   );
 }

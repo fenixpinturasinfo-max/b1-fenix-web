@@ -39,3 +39,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Prisma client generado
+/lib/generated/
+
+# Credenciales internas
+docs/CREDENCIALES.md

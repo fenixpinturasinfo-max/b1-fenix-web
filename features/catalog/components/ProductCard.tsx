@@ -18,7 +18,7 @@ export function ProductCard({ product }: { product: Product }) {
     : null;
 
   return (
-    <article className="group flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white transition hover:border-fenix-400 hover:shadow-card">
+    <article className="group flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white transition hover:border-electric-500 hover:shadow-card">
       <div
         className={`relative flex h-40 items-center justify-center bg-gradient-to-br ${categoryHue[product.categoria]}`}
         role="img"

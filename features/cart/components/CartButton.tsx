@@ -11,7 +11,7 @@ export function CartButton() {
     <button
       type="button"
       onClick={open}
-      className="relative flex h-11 min-w-11 items-center justify-center rounded-xl border border-slate-200 bg-white px-3 text-navy-950 transition hover:border-fenix-500"
+      className="relative flex h-11 min-w-11 items-center justify-center rounded-xl border border-slate-200 bg-white px-3 text-navy-950 transition hover:border-electric-500"
       aria-label={`Abrir carro de compras, ${count} productos`}
     >
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">

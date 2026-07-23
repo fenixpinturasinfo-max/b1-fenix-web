@@ -7,12 +7,17 @@
   --color-navy-800: #1c2536;
   --color-navy-700: #2a3650;
 
-  --color-fenix-600: #e03a1f;
+  /* Rojo → naranjo: SOLO acciones, ofertas y marca */
+  --color-fenix-600: #e8332a;
   --color-fenix-500: #ff4d26;
-  --color-fenix-400: #ff7a45;
-  --color-fenix-300: #ffb347;
+  --color-fenix-400: #ff6b1a;
+  --color-fenix-300: #ffa53c;
 
-  --color-fenix-magenta: #d6336c;
+  /* Azul eléctrico: estructura, enlaces, estados activos */
+  --color-electric-600: #1e4fe8;
+  --color-electric-500: #2e5bff;
+  --color-electric-50: #eef3ff;
+
   --color-lime-400: #7cb518;
 
   --color-cloud: #f4f6fb;
@@ -26,12 +31,12 @@
 }
 
 @layer utilities {
-  /* Gradiente del anillo del logo: magenta → rojo → naranja → amarillo */
+  /* Gradiente de acción: rojo → naranjo */
   .bg-flame {
-    background-image: linear-gradient(135deg, #d6336c, #e03a1f 40%, #ff7a45 75%, #ffb347);
+    background-image: linear-gradient(135deg, #e8332a, #ff6b1a 65%, #ffa53c);
   }
   .text-flame {
-    background-image: linear-gradient(135deg, #d6336c, #ff4d26 55%, #ffb347);
+    background-image: linear-gradient(135deg, #e8332a, #ff6b1a 60%, #ffa53c);
     background-clip: text;
     color: transparent;
   }
@@ -39,8 +44,24 @@
     border: 2px solid transparent;
     background:
       linear-gradient(white, white) padding-box,
-      linear-gradient(135deg, #d6336c, #ff7a45 60%, #ffb347) border-box;
+      linear-gradient(135deg, #e8332a, #ff6b1a 60%, #ffa53c) border-box;
   }
+}
+
+/* Modo oscuro del dashboard: remapea los tokens dentro del contenedor .dark */
+.dark {
+  --color-white: #141b2b;
+  --color-cloud: #0d1220;
+  --color-slate-100: #1e2739;
+  --color-slate-200: #273248;
+  --color-slate-300: #36435e;
+  --color-slate-400: #7c8aa5;
+  --color-slate-500: #93a1bb;
+  --color-slate-600: #b6c2d9;
+  --color-slate-700: #d4dcec;
+  --color-navy-950: #eef2fb;
+  --color-electric-50: #1c2a4d;
+  color-scheme: dark;
 }
 
 html {
