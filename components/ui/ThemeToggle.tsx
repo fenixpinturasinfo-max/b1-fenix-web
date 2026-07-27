@@ -2,22 +2,19 @@
 
 import { useEffect, useState } from "react";
 
-const KEY = "fenix-theme";
+const COOKIE = "fenix-theme";
 
 export function ThemeToggle() {
   const [dark, setDark] = useState<boolean | null>(null);
 
   useEffect(() => {
-    const stored = localStorage.getItem(KEY);
-    const isDark = stored === "dark";
-    setDark(isDark);
-    document.getElementById("dash-root")?.classList.toggle("dark", isDark);
+    setDark(document.getElementById("dash-root")?.classList.contains("dark") ?? false);
   }, []);
 
   const toggle = () => {
     const next = !dark;
     setDark(next);
-    localStorage.setItem(KEY, next ? "dark" : "light");
+    document.cookie = `${COOKIE}=${next ? "dark" : "light"}; path=/; max-age=31536000; samesite=lax`;
     document.getElementById("dash-root")?.classList.toggle("dark", next);
   };
 

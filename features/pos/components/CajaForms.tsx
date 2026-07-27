@@ -3,6 +3,7 @@
 import { useActionState } from "react";
 import { abrirCaja, cerrarCaja, type ActionState } from "../actions";
 import { formatCLP } from "@/lib/format";
+import { esperadoEnCaja } from "../caja";
 
 const input =
   "h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-navy-950 outline-none transition focus:border-electric-500";
@@ -58,17 +59,25 @@ export function CerrarCajaForm({
   cajaId,
   montoApertura,
   ventasEfectivo,
+  saldoMovimientos,
   totalVentas,
   nVentas,
 }: {
   cajaId: string;
   montoApertura: number;
   ventasEfectivo: number;
+  /** Sangrías, gastos e ingresos del turno, ya netos */
+  saldoMovimientos: number;
   totalVentas: number;
   nVentas: number;
 }) {
   const [state, action, pending] = useActionState<ActionState, FormData>(cerrarCaja, {});
-  const esperado = montoApertura + ventasEfectivo;
+  // Misma función que usa el servidor al cerrar: el número que el cajero firma no puede
+  // salir de una fórmula distinta a la que después define su descuadre.
+  const esperado = esperadoEnCaja(montoApertura, ventasEfectivo, [
+    { tipo: "INGRESO", monto: Math.max(0, saldoMovimientos) },
+    { tipo: "SANGRIA", monto: Math.max(0, -saldoMovimientos) },
+  ]);
 
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-6">
@@ -86,6 +95,20 @@ export function CerrarCajaForm({
           <dt className="text-slate-500">Ventas en efectivo</dt>
           <dd className="font-semibold text-navy-950">{formatCLP(ventasEfectivo)}</dd>
         </div>
+        {/* Sin esta fila la resta no da y el cajero firma un número que no puede derivar */}
+        {saldoMovimientos !== 0 && (
+          <div className="flex justify-between">
+            <dt className="text-slate-500">Sangrías, gastos e ingresos</dt>
+            <dd
+              className={`font-semibold ${
+                saldoMovimientos > 0 ? "text-[#4d7c0f]" : "text-fenix-600"
+              }`}
+            >
+              {saldoMovimientos > 0 ? "+" : "−"}
+              {formatCLP(Math.abs(saldoMovimientos))}
+            </dd>
+          </div>
+        )}
         <div className="flex justify-between border-t border-slate-200 pt-2">
           <dt className="font-bold text-navy-950">Efectivo esperado en caja</dt>
           <dd className="font-bold text-navy-950">{formatCLP(esperado)}</dd>

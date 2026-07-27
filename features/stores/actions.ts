@@ -1,8 +1,8 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { revalidatePath, revalidateTag } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { getSession } from "@/lib/auth/session";
+import { exigirEscritura } from "@/lib/auth/guards";
 
 export interface ActionState {
   error?: string;
@@ -10,14 +10,13 @@ export interface ActionState {
 }
 
 async function requireAdmin() {
-  const session = await getSession();
-  if (!session || session.rol !== "ADMINISTRADOR") throw new Error("No autorizado");
-  return session;
+  return exigirEscritura("config.locales");
 }
 
 function revalidar() {
-  revalidatePath("/dashboard/locales");
+  revalidatePath("/dashboard/configuracion/locales");
   revalidatePath("/"); // la landing muestra los locales
+  revalidateTag("locales", "max"); // cache compartido de lookups (lib/cache.ts)
 }
 
 export async function guardarLocal(
@@ -33,6 +32,7 @@ export async function guardarLocal(
     const direccion = String(formData.get("direccion") ?? "").trim();
     const comuna = String(formData.get("comuna") ?? "").trim();
     const horario = String(formData.get("horario") ?? "").trim() || null;
+    const esMatriz = formData.get("esMatriz") === "on";
 
     if (!codigo || !nombre || !direccion || !comuna) {
       return { error: "Completa código, nombre, dirección y comuna." };
@@ -46,16 +46,22 @@ export async function guardarLocal(
       return { error: `El código ${codigo} ya está en uso por ${existente.nombre}.` };
     }
 
-    if (id) {
-      await prisma.local.update({
-        where: { id },
-        data: { codigo, nombre, direccion, comuna, horario },
-      });
-    } else {
-      await prisma.local.create({
-        data: { codigo, nombre, direccion, comuna, horario },
-      });
-    }
+    await prisma.$transaction(async (tx) => {
+      // Solo puede existir una casa matriz
+      if (esMatriz) {
+        await tx.local.updateMany({ where: { esMatriz: true }, data: { esMatriz: false } });
+      }
+      if (id) {
+        await tx.local.update({
+          where: { id },
+          data: { codigo, nombre, direccion, comuna, horario, esMatriz },
+        });
+      } else {
+        await tx.local.create({
+          data: { codigo, nombre, direccion, comuna, horario, esMatriz },
+        });
+      }
+    });
 
     revalidar();
     return { ok: id ? "Local actualizado." : `Local ${nombre} creado.` };

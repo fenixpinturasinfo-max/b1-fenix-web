@@ -26,7 +26,7 @@ export function Gallery() {
             href={INSTAGRAM_URL}
             target="_blank"
             rel="noopener noreferrer"
-            className="ring-flame mb-10 inline-flex h-11 items-center rounded-xl bg-white px-5 font-semibold text-navy-950 transition hover:shadow-card"
+            className="mb-10 inline-flex h-11 items-center rounded-xl border border-slate-300 bg-white px-5 font-semibold text-navy-950 transition hover:border-electric-500 hover:text-electric-600"
           >
             Ver más en Instagram →
           </a>

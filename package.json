@@ -1,6 +1,6 @@
 {
   "name": "b1-fenix-web",
-  "version": "1.1.11",
+  "version": "1.1.12",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -10,6 +10,7 @@
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:seed": "prisma db seed",
+    "db:usuarios": "tsx prisma/seed-usuarios.ts",
     "db:deploy": "prisma migrate deploy",
     "db:studio": "prisma studio"
   },

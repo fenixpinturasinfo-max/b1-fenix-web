@@ -1,11 +1,14 @@
-import { requireModulo } from "@/lib/auth/guards";
+import { esRolGlobal } from "@/lib/auth/permissions";
+import { requireSeccion } from "@/lib/auth/guards";
 import { prisma } from "@/lib/prisma";
 import { AbrirCajaForm, CerrarCajaForm } from "@/features/pos/components/CajaForms";
 import { PosVenta, type PosProducto } from "@/features/pos/components/PosVenta";
+import { MovimientosCaja } from "@/features/pos/components/MovimientosCaja";
+import { saldoMovimientos } from "@/features/pos/caja";
 import { formatCLP } from "@/lib/format";
 
 export default async function PosPage() {
-  const session = await requireModulo("pos");
+  const session = await requireSeccion("ventas.pos");
 
   const locales = await prisma.local.findMany({
     where: { activo: true },
@@ -18,6 +21,7 @@ export default async function PosPage() {
     include: {
       local: true,
       ventas: { where: { estado: "COMPLETADA" }, orderBy: { creadoEn: "desc" } },
+      movimientos: { orderBy: { creadoEn: "desc" } },
     },
   });
 
@@ -27,7 +31,7 @@ export default async function PosPage() {
         <h1 className="text-2xl font-black text-navy-950">POS / Ventas</h1>
         <AbrirCajaForm
           locales={locales.map((l) => ({ id: l.id, nombre: l.nombre }))}
-          localFijo={session.rol === "ADMINISTRADOR" ? null : session.localId}
+          localFijo={esRolGlobal(session.rol) ? null : session.localId}
         />
       </div>
     );
@@ -56,6 +60,7 @@ export default async function PosPage() {
   const ventasEfectivo = caja.ventas
     .filter((v) => v.medioPago === "EFECTIVO")
     .reduce((n, v) => n + v.total, 0);
+  const saldoMovs = saldoMovimientos(caja.movimientos);
 
   return (
     <div className="space-y-8">
@@ -102,8 +107,21 @@ export default async function PosPage() {
           cajaId={caja.id}
           montoApertura={caja.montoApertura}
           ventasEfectivo={ventasEfectivo}
+          saldoMovimientos={saldoMovs}
           totalVentas={totalVentas}
           nVentas={caja.ventas.length}
+        />
+
+        <MovimientosCaja
+          cajaId={caja.id}
+          saldo={saldoMovs}
+          movimientos={caja.movimientos.map((m) => ({
+            id: m.id,
+            tipo: m.tipo,
+            monto: m.monto,
+            motivo: m.motivo,
+            creadoEn: m.creadoEn,
+          }))}
         />
       </div>
     </div>

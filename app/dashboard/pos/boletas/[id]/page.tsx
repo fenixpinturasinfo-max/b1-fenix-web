@@ -1,8 +1,11 @@
+import { esRolGlobal } from "@/lib/auth/permissions";
 import { notFound } from "next/navigation";
-import { requireModulo } from "@/lib/auth/guards";
+import { requireSeccion } from "@/lib/auth/guards";
 import { prisma } from "@/lib/prisma";
 import { formatCLP } from "@/lib/format";
 import { PrintButton } from "@/features/pos/components/PrintButton";
+import { AutoPrint } from "@/features/pos/components/AutoPrint";
+import { EmailBoletaForm } from "@/features/pos/components/EmailBoletaForm";
 
 const fmt = new Intl.DateTimeFormat("es-CL", {
   dateStyle: "long",
@@ -19,11 +22,14 @@ const medioLabel: Record<string, string> = {
 
 export default async function BoletaPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ print?: string }>;
 }) {
-  const session = await requireModulo("pos");
+  const session = await requireSeccion("ventas.boletas");
   const { id } = await params;
+  const { print } = await searchParams;
 
   const venta = await prisma.venta.findUnique({
     where: { id },
@@ -36,17 +42,21 @@ export default async function BoletaPage({
 
   if (!venta) notFound();
   // Solo su local, salvo administrador
-  if (session.rol !== "ADMINISTRADOR" && venta.localId !== session.localId) notFound();
+  if (!esRolGlobal(session.rol) && venta.localId !== session.localId) notFound();
 
   const folio = `${venta.local.codigo}-${String(venta.correlativo).padStart(6, "0")}`;
 
   return (
     <div className="mx-auto max-w-md space-y-5">
+      {print === "1" && <AutoPrint />}
       <div className="flex items-center justify-between print:hidden">
         <a href="/dashboard/pos/boletas" className="text-sm font-semibold text-slate-500 hover:text-electric-600">
           ← Volver a boletas
         </a>
         <PrintButton />
+      </div>
+      <div className="print:hidden">
+        <EmailBoletaForm ventaId={venta.id} />
       </div>
 
       {/* Boleta / ticket */}

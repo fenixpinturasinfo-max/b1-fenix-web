@@ -8,6 +8,11 @@ const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
 function createClient() {
   const adapter = new PrismaPg({
     connectionString: process.env.DATABASE_URL,
+    // Neon suspende conexiones inactivas: reciclarlas antes evita
+    // los "Error in PostgreSQL connection: TimedOut" en la consola.
+    max: 5, // pocas conexiones (Neon pooler + serverless)
+    idleTimeoutMillis: 30_000, // cerrar conexiones ociosas a los 30 s
+    connectionTimeoutMillis: 10_000, // no esperar más de 10 s por una conexión
   });
   return new PrismaClient({ adapter });
 }

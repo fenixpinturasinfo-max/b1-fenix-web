@@ -13,10 +13,32 @@ datasource db {
 // ─────────────────────────── Usuarios y roles ───────────────────────────
 
 enum Rol {
-  ADMINISTRADOR // acceso total, todos los locales, reportes consolidados
-  JEFE_LOCAL    // gestiona inventario y ventas de su local
-  VENDEDOR      // POS de su local: ventas y arqueo
-  BODEGA        // movimientos de inventario de su local
+  ADMINISTRADOR // acceso total, todos los locales, incluye configuración
+  GERENTE       // control global de ventas, compras, stock y solicitudes (sin configuración)
+  JEFE_LOCAL    // encargado: gestiona inventario, compras y ventas de su local
+  VENDEDOR      // POS de su local: ventas, pedidos y arqueo
+  BODEGA        // inventario y recepciones de su local
+}
+
+/// Qué puede hacer un perfil en una sección del menú.
+enum NivelAcceso {
+  TOTAL      // consulta y opera
+  LECTURA    // consulta, sin modificar
+  SIN_ACCESO // la sección no aparece y la ruta se cierra
+}
+
+/// Permisos editables desde Configuración › Perfiles.
+/// El catálogo de secciones vive en lib/auth/secciones.ts: una sección es una ruta
+/// con una pantalla detrás, así que no tiene sentido poder inventarlas en la base.
+/// Sin fila para (rol, sección) el nivel es SIN_ACCESO: lo nuevo nace cerrado.
+model PermisoPerfil {
+  id      String      @id @default(cuid())
+  rol     Rol
+  seccion String
+  nivel   NivelAcceso
+
+  @@unique([rol, seccion])
+  @@index([rol])
 }
 
 model Usuario {
@@ -34,6 +56,16 @@ model Usuario {
   ventas       Venta[]
   movimientos  MovimientoInventario[]
   cajaSesiones CajaSesion[]
+  movimientosCaja      MovimientoCaja[]
+  solicitudesCreadas   SolicitudReposicion[] @relation("SolicitudesCreadas")
+  solicitudesResueltas SolicitudReposicion[] @relation("SolicitudesResueltas")
+  ordenesCompraCreadas OrdenCompra[]
+  entradasRecibidas    EntradaCompra[]
+  facturasCreadas      FacturaCompra[]
+  notasCreditoCreadas  NotaCredito[]
+  pedidosCreados       PedidoCliente[]
+  tomasCreadas         TomaInventario[] @relation("TomasCreadas")
+  tomasAplicadas       TomaInventario[] @relation("TomasAplicadas")
 
   @@index([localId])
 }
@@ -48,6 +80,8 @@ model Local {
   comuna    String
   horario   String?
   activo    Boolean  @default(true)
+  // Casa matriz: recibe las solicitudes de reposición de los demás locales
+  esMatriz  Boolean  @default(false)
   creadoEn  DateTime @default(now())
 
   usuarios     Usuario[]
@@ -55,6 +89,11 @@ model Local {
   ventas       Venta[]
   movimientos  MovimientoInventario[]
   cajaSesiones CajaSesion[]
+  solicitudes  SolicitudReposicion[]
+  ordenesCompraDestino OrdenCompra[]
+  entradasCompra       EntradaCompra[]
+  pedidos              PedidoCliente[]
+  tomas                TomaInventario[]
 }
 
 // ─────────────────────────── Catálogo ───────────────────────────
@@ -88,6 +127,14 @@ model Producto {
   stocks       StockLocal[]
   detalleVenta DetalleVenta[]
   movimientos  MovimientoInventario[]
+  solicitudes  SolicitudReposicion[]
+  ocLineas      OrdenCompraLinea[]
+  entradaLineas EntradaCompraLinea[]
+  facturaLineas FacturaCompraLinea[]
+  ncLineas      NotaCreditoLinea[]
+  preciosCompra PrecioCompraProveedor[]
+  pedidoLineas  PedidoClienteLinea[]
+  tomaLineas    TomaLinea[]
 
   @@index([categoriaId])
   @@index([marca])
@@ -135,11 +182,88 @@ model MovimientoInventario {
   ventaId    String?
   venta      Venta?         @relation(fields: [ventaId], references: [id])
   transferenciaPar String?  // id del movimiento espejo en el otro local
+  // Toma de inventario que lo originó, para poder auditar hacia atrás
+  tomaLineaId String?     @unique
+  tomaLinea   TomaLinea?  @relation(fields: [tomaLineaId], references: [id])
   nota       String?
   creadoEn   DateTime       @default(now())
 
   @@index([productoId, localId])
   @@index([localId, creadoEn])
+}
+
+// ─────────────────────────── Toma de inventario ───────────────────────────
+
+enum EstadoToma {
+  ABIERTA   // en conteo
+  CONTADA   // conteo cerrado, esperando revisión
+  APLICADA  // los ajustes ya tocaron el stock
+  ANULADA
+}
+
+enum AlcanceToma {
+  TOTAL
+  CATEGORIA
+  UBICACION
+  MARCA
+  ALTO_VALOR // los de mayor valor en stock: el 20% que concentra el 80%
+}
+
+enum MotivoAjuste {
+  MERMA
+  ROBO
+  ERROR_RECEPCION
+  ERROR_CONTEO
+  VENCIDO
+  OTRO
+}
+
+/// Conteo físico del stock. A diferencia de un AJUSTE suelto, es un proceso que se abre,
+/// se cuenta por partes, se revisa y recién después toca el stock.
+model TomaInventario {
+  id          String      @id @default(cuid())
+  correlativo Int         @unique
+  localId     String
+  local       Local       @relation(fields: [localId], references: [id])
+  estado      EstadoToma  @default(ABIERTA)
+  alcance     AlcanceToma
+  /// Valor del alcance: id de categoría, texto de ubicación, marca…
+  filtro      String?
+  /// Sin ver el esperado mientras se cuenta: verlo convierte el conteo en confirmación
+  ciego       Boolean     @default(true)
+  nota        String?
+  creadoPorId String
+  creadoPor   Usuario     @relation("TomasCreadas", fields: [creadoPorId], references: [id])
+  creadoEn    DateTime    @default(now())
+  cerradaEn   DateTime?
+  aplicadaPorId String?
+  aplicadaPor   Usuario?  @relation("TomasAplicadas", fields: [aplicadaPorId], references: [id])
+  aplicadaEn    DateTime?
+
+  lineas TomaLinea[]
+
+  @@index([localId, estado])
+}
+
+model TomaLinea {
+  id         String         @id @default(cuid())
+  tomaId     String
+  toma       TomaInventario @relation(fields: [tomaId], references: [id], onDelete: Cascade)
+  productoId String
+  producto   Producto       @relation(fields: [productoId], references: [id])
+  /// Congelado al abrir la toma
+  esperado   Int
+  contado    Int?
+  /// Para descontar los movimientos ocurridos después del conteo
+  contadoEn  DateTime?
+  motivo     MotivoAjuste?
+  /// Se marca cuando el contador la saltó: vuelve al final de la cola
+  saltada    Boolean        @default(false)
+
+  movimiento MovimientoInventario?
+
+  @@unique([tomaId, productoId])
+  @@index([tomaId])
 }
 
 // ─────────────────────────── Ventas (POS) ───────────────────────────
@@ -179,6 +303,8 @@ model Venta {
   @@unique([localId, correlativo])
   @@index([localId, creadoEn])
   @@index([cajaSesionId])
+  // "Mi turno" filtra por vendedor sobre la tabla que más crece
+  @@index([usuarioId, creadoEn])
 }
 
 model DetalleVenta {
@@ -190,9 +316,324 @@ model DetalleVenta {
   cantidad     Int
   // Precio congelado al momento de la venta
   precioUnitario Int
+  // Costo congelado al momento de la venta (CPP vigente): permite margen histórico real
+  costoUnitario Int    @default(0)
   subtotal     Int
 
   @@index([ventaId])
+}
+
+// ─────────────────────────── Pedidos de clientes ───────────────────────────
+
+enum EstadoPedido {
+  PENDIENTE // registrado, por preparar
+  PREPARADO // listo para retiro/entrega
+  ENTREGADO // retirado por el cliente (el cobro/stock pasa por el POS)
+  ANULADO
+}
+
+model PedidoCliente {
+  id          String       @id @default(cuid())
+  correlativo Int          @unique // PED-000001
+  // Cliente de la ficha de socios (opcional) o cliente de paso
+  clienteId   String?
+  cliente     SocioNegocio? @relation(fields: [clienteId], references: [id])
+  nombreCliente String
+  telefono    String?
+  // Local de retiro / entrega
+  localId     String
+  local       Local        @relation(fields: [localId], references: [id])
+  estado      EstadoPedido @default(PENDIENTE)
+  nota        String?
+  total       Int // CLP, precios de venta (IVA incluido)
+  creadoPorId String
+  creadoPor   Usuario      @relation(fields: [creadoPorId], references: [id])
+  creadoEn    DateTime     @default(now())
+  entregadoEn DateTime?
+
+  lineas PedidoClienteLinea[]
+
+  @@index([estado, creadoEn])
+  @@index([localId])
+}
+
+model PedidoClienteLinea {
+  id             String        @id @default(cuid())
+  pedidoId       String
+  pedido         PedidoCliente @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
+  productoId     String
+  producto       Producto      @relation(fields: [productoId], references: [id])
+  cantidad       Int
+  precioUnitario Int // congelado al crear el pedido
+  subtotal       Int
+
+  @@index([pedidoId])
+}
+
+// ─────────────────────────── Socios de negocios ───────────────────────────
+
+enum TipoSocio {
+  CLIENTE
+  PROVEEDOR
+}
+
+model SocioNegocio {
+  id             String    @id @default(cuid())
+  tipo           TipoSocio
+  // Un mismo RUT puede existir como cliente Y como proveedor (fichas separadas)
+  rut            String
+  razonSocial    String
+  nombreFantasia String?
+  giro           String?
+  email          String?
+  telefono       String?
+  direccion      String?
+  comuna         String?
+  condicionPago  String? // CONTADO, 30D, 60D...
+  activo         Boolean   @default(true)
+  creadoEn       DateTime  @default(now())
+
+  solicitudes   SolicitudReposicion[]
+  ordenesCompra OrdenCompra[]
+  entradasCompra EntradaCompra[]
+  facturasCompra FacturaCompra[]
+  preciosCompra  PrecioCompraProveedor[]
+  pedidos        PedidoCliente[]
+
+  @@unique([rut, tipo])
+}
+
+// ─────────────────────────── Solicitudes a casa matriz ───────────────────────────
+
+enum EstadoSolicitud {
+  PENDIENTE
+  COTIZADA // cotización enviada al proveedor, esperando respuesta
+  DESPACHADA // copiada a OC (proveedor) · transferencia ejecutada (matriz)
+  RECHAZADA
+}
+
+enum DestinoSolicitud {
+  MATRIZ
+  PROVEEDOR
+}
+
+model SolicitudReposicion {
+  id         String          @id @default(cuid())
+  // Correlativo interno del documento: SOL-000001.
+  // Las líneas enviadas en un mismo pedido comparten folio (null en registros antiguos).
+  correlativo Int?
+  productoId String
+  producto   Producto        @relation(fields: [productoId], references: [id])
+  // Local que solicita la reposición
+  localId    String
+  local      Local           @relation(fields: [localId], references: [id])
+  cantidad   Int
+  // Precio unitario referencial (solo solicitudes de compra a proveedor)
+  costoUnitario Int?
+  // Fecha requerida de entrega (solo solicitudes de compra a proveedor)
+  fechaRequerida DateTime?
+  nota       String?
+  estado     EstadoSolicitud @default(PENDIENTE)
+  destino    DestinoSolicitud @default(MATRIZ)
+  proveedorId String?
+  proveedor  SocioNegocio?   @relation(fields: [proveedorId], references: [id])
+  // Documento destino (estilo SAP B1): OC generada al "copiar a" esta solicitud
+  ordenCompraId String?
+  ordenCompra   OrdenCompra?  @relation(fields: [ordenCompraId], references: [id])
+
+  solicitanteId String
+  solicitante   Usuario  @relation("SolicitudesCreadas", fields: [solicitanteId], references: [id])
+  resueltoPorId String?
+  resueltoPor   Usuario? @relation("SolicitudesResueltas", fields: [resueltoPorId], references: [id])
+  notaResolucion String?
+  creadoEn   DateTime  @default(now())
+  resueltoEn DateTime?
+
+  @@index([estado, creadoEn])
+  @@index([localId])
+  @@index([correlativo])
+}
+
+// ─────────────────────────── Lista de precios de compra ───────────────────────────
+
+// Último precio de compra por proveedor+producto (estilo SAP B1).
+// Se actualiza automáticamente al recepcionar/facturar; también editable a mano.
+model PrecioCompraProveedor {
+  id          String       @id @default(cuid())
+  proveedorId String
+  proveedor   SocioNegocio @relation(fields: [proveedorId], references: [id])
+  productoId  String
+  producto    Producto     @relation(fields: [productoId], references: [id])
+  precio      Int // CLP neto
+  origen      String? // "EC-000012", "Factura 4581" o "Manual"
+  actualizadoEn DateTime   @updatedAt
+
+  @@unique([proveedorId, productoId])
+  @@index([productoId])
+}
+
+// ─────────────────────────── Compras: OC y Recepción ───────────────────────────
+
+enum EstadoOC {
+  BORRADOR
+  ENVIADA
+  RECIBIDA_PARCIAL
+  RECIBIDA
+  CERRADA
+  ANULADA
+}
+
+model OrdenCompra {
+  id             String   @id @default(cuid())
+  correlativo    Int      @unique
+  proveedorId    String
+  proveedor      SocioNegocio @relation(fields: [proveedorId], references: [id])
+  localDestinoId String
+  localDestino   Local    @relation(fields: [localDestinoId], references: [id])
+  estado         EstadoOC @default(ENVIADA)
+  // Fecha requerida de entrega (la que pide Fenix)
+  fechaRequerida DateTime?
+  // Fecha de entrega comprometida por el proveedor
+  fechaEntrega   DateTime?
+  nota           String?
+  creadoPorId    String
+  creadoPor      Usuario  @relation(fields: [creadoPorId], references: [id])
+  creadoEn       DateTime @default(now())
+
+  lineas   OrdenCompraLinea[]
+  entradas EntradaCompra[]
+  factura  FacturaCompra?
+  // Documentos base (estilo SAP B1): solicitudes copiadas a esta OC
+  solicitudes SolicitudReposicion[]
+
+  @@index([estado, creadoEn])
+}
+
+model OrdenCompraLinea {
+  id               String      @id @default(cuid())
+  ordenCompraId    String
+  ordenCompra      OrdenCompra @relation(fields: [ordenCompraId], references: [id], onDelete: Cascade)
+  productoId       String
+  producto         Producto    @relation(fields: [productoId], references: [id])
+  cantidad         Int
+  costoUnitario    Int // CLP neto
+  cantidadRecibida Int @default(0)
+
+  @@index([ordenCompraId])
+}
+
+model EntradaCompra {
+  id            String       @id @default(cuid())
+  correlativo   Int          @unique
+  ordenCompraId String?
+  ordenCompra   OrdenCompra? @relation(fields: [ordenCompraId], references: [id])
+  proveedorId   String
+  proveedor     SocioNegocio @relation(fields: [proveedorId], references: [id])
+  localId       String
+  local         Local        @relation(fields: [localId], references: [id])
+  numeroGuia    String?
+  recibidoPorId String
+  recibidoPor   Usuario      @relation(fields: [recibidoPorId], references: [id])
+  creadoEn      DateTime     @default(now())
+
+  lineas EntradaCompraLinea[]
+
+  @@index([creadoEn])
+}
+
+model EntradaCompraLinea {
+  id            String        @id @default(cuid())
+  entradaId     String
+  entrada       EntradaCompra @relation(fields: [entradaId], references: [id], onDelete: Cascade)
+  productoId    String
+  producto      Producto      @relation(fields: [productoId], references: [id])
+  cantidad      Int
+  costoUnitario Int // costo histórico de esta recepción (base del CPP)
+
+  @@index([entradaId])
+}
+
+// ─────────────────────────── Compras: Factura y Nota de Crédito ───────────────────────────
+
+enum EstadoFactura {
+  ABIERTA
+  PAGADA
+  ANULADA
+}
+
+model FacturaCompra {
+  id            String       @id @default(cuid())
+  correlativo   Int          @unique // interno FC-000001
+  numero        String // folio del proveedor
+  ordenCompraId String       @unique // una factura por OC (v1)
+  ordenCompra   OrdenCompra  @relation(fields: [ordenCompraId], references: [id])
+  proveedorId   String
+  proveedor     SocioNegocio @relation(fields: [proveedorId], references: [id])
+  // true = camino 2: esta factura recepcionó la mercadería pendiente (subió stock + CPP)
+  esRecepcionDirecta Boolean @default(false)
+  neto          Int
+  iva           Int // 19%
+  total         Int
+  fechaEmision  DateTime
+  fechaVencimiento DateTime?
+  estado        EstadoFactura @default(ABIERTA)
+  creadoPorId   String
+  creadoPor     Usuario      @relation(fields: [creadoPorId], references: [id])
+  creadoEn      DateTime     @default(now())
+
+  lineas       FacturaCompraLinea[]
+  notasCredito NotaCredito[]
+
+  @@index([estado, fechaVencimiento])
+}
+
+model FacturaCompraLinea {
+  id            String        @id @default(cuid())
+  facturaId     String
+  factura       FacturaCompra @relation(fields: [facturaId], references: [id], onDelete: Cascade)
+  productoId    String
+  producto      Producto      @relation(fields: [productoId], references: [id])
+  cantidad      Int
+  costoUnitario Int
+
+  @@index([facturaId])
+}
+
+model NotaCredito {
+  id          String        @id @default(cuid())
+  correlativo Int           @unique // NC-000001
+  facturaId   String
+  factura     FacturaCompra @relation(fields: [facturaId], references: [id])
+  motivo      String
+  total       Int // neto + iva de lo devuelto
+  creadoPorId String
+  creadoPor   Usuario       @relation(fields: [creadoPorId], references: [id])
+  creadoEn    DateTime      @default(now())
+
+  lineas NotaCreditoLinea[]
+}
+
+model NotaCreditoLinea {
+  id            String      @id @default(cuid())
+  notaCreditoId String
+  notaCredito   NotaCredito @relation(fields: [notaCreditoId], references: [id], onDelete: Cascade)
+  productoId    String
+  producto      Producto    @relation(fields: [productoId], references: [id])
+  cantidad      Int
+  costoUnitario Int
+
+  @@index([notaCreditoId])
+}
+
+// ─────────────────────────── Correos de boletas ───────────────────────────
+
+model EmailBoleta {
+  id        String   @id @default(cuid())
+  ventaId   String
+  email     String
+  enviadoEn DateTime @default(now())
+
+  @@index([enviadoEn])
 }
 
 // ─────────────────────────── Caja y arqueo ───────────────────────────
@@ -200,6 +641,30 @@ model DetalleVenta {
 enum EstadoCaja {
   ABIERTA
   CERRADA
+}
+
+/// Movimiento de efectivo dentro del turno, fuera de las ventas.
+/// Sin esto el arqueo marca descuadres enormes cada vez que alguien saca plata
+/// de la caja para pagar un flete o hace una sangría de seguridad.
+enum TipoMovCaja {
+  SANGRIA // retiro de efectivo a la bóveda o al banco
+  INGRESO // aporte de efectivo a la caja
+  GASTO   // pago menor hecho con dinero de la caja
+}
+
+model MovimientoCaja {
+  id           String      @id @default(cuid())
+  cajaSesionId String
+  cajaSesion   CajaSesion  @relation(fields: [cajaSesionId], references: [id], onDelete: Cascade)
+  tipo         TipoMovCaja
+  /// Siempre positivo: el signo lo define el tipo
+  monto        Int
+  motivo       String
+  usuarioId    String
+  usuario      Usuario     @relation(fields: [usuarioId], references: [id])
+  creadoEn     DateTime    @default(now())
+
+  @@index([cajaSesionId])
 }
 
 model CajaSesion {
@@ -212,13 +677,18 @@ model CajaSesion {
   // Arqueo
   montoApertura Int        // efectivo inicial en caja
   montoCierre   Int?       // efectivo contado al cierre
-  montoEsperado Int?       // apertura + ventas en efectivo
+  montoEsperado Int?       // apertura + ventas efectivo + ingresos − sangrías − gastos
   diferencia    Int?       // cierre - esperado (descuadre)
   notaCierre    String?
   abiertaEn     DateTime   @default(now())
   cerradaEn     DateTime?
 
-  ventas Venta[]
+  ventas      Venta[]
+  movimientos MovimientoCaja[]
 
   @@index([localId, estado])
+  @@index([localId, abiertaEn])
+  @@index([usuarioId, estado])
+  // El reporte consolidado de gerencia filtra solo por fecha
+  @@index([abiertaEn])
 }

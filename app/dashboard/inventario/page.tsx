@@ -1,92 +1,101 @@
-import { requireModulo } from "@/lib/auth/guards";
+import Link from "next/link";
+import { esRolGlobal } from "@/lib/auth/permissions";
+import { requireSeccionConNivel } from "@/lib/auth/guards";
 import { prisma } from "@/lib/prisma";
-import { StockTable, type StockRow } from "@/features/inventory/components/StockTable";
-import { MovementForm } from "@/features/inventory/components/MovementForm";
+import { getCategorias, getLocalesActivos } from "@/lib/cache";
+import {
+  StockTable,
+  type EstadoStock,
+  type ProductoStock,
+} from "@/features/inventory/components/StockTable";
+import { ProductForm } from "@/features/inventory/components/ProductForm";
+
+const ESTADOS: EstadoStock[] = ["TODOS", "SIN", "BAJO", "OK"];
 
 export default async function InventarioPage({
   searchParams,
 }: {
-  searchParams: Promise<{ local?: string }>;
+  searchParams: Promise<{ estado?: string }>;
 }) {
-  const session = await requireModulo("inventario");
-  const { local: localParam } = await searchParams;
+  // En solo lectura consulta el stock, pero no define mínimos ni ubicaciones
+  const { session, escribe: ajusta } = await requireSeccionConNivel("inventario.productos");
+  const { estado } = await searchParams;
+  const estadoInicial = ESTADOS.includes(estado as EstadoStock)
+    ? (estado as EstadoStock)
+    : "TODOS";
 
-  const locales = await prisma.local.findMany({
-    where: { activo: true },
-    orderBy: { nombre: "asc" },
-  });
+  const [locales, productos, categorias] = await Promise.all([
+    getLocalesActivos(),
+    prisma.producto.findMany({
+      where: { activo: true },
+      include: { stocks: true },
+      orderBy: { nombre: "asc" },
+    }),
+    getCategorias(),
+  ]);
 
-  // Admin puede cambiar de local; el resto queda fijo en el suyo
-  const localId =
-    session.rol === "ADMINISTRADOR"
-      ? (locales.find((l) => l.id === localParam)?.id ?? locales[0]?.id)
-      : session.localId!;
-  const localActual = locales.find((l) => l.id === localId);
-
-  const productos = await prisma.producto.findMany({
-    where: { activo: true },
-    include: { stocks: { where: { localId } } },
-    orderBy: { nombre: "asc" },
-  });
-
-  const rows: StockRow[] = productos.map((p) => ({
+  const items: ProductoStock[] = productos.map((p) => ({
     productoId: p.id,
     sku: p.sku,
     nombre: p.nombre,
     marca: p.marca,
-    cantidad: p.stocks[0]?.cantidad ?? 0,
-    stockMin: p.stocks[0]?.stockMin ?? 0,
-    stockMax: p.stocks[0]?.stockMax ?? null,
-    ubicacion: p.stocks[0]?.ubicacion ?? null,
+    categoriaId: p.categoriaId,
     codigoBarra: p.codigoBarra,
+    precioCosto: p.precioCosto,
+    precioVenta: p.precioVenta,
+    imagen: p.imagen,
+    activo: p.activo,
+    porLocal: Object.fromEntries(
+      p.stocks.map((s) => [
+        s.localId,
+        {
+          cantidad: s.cantidad,
+          stockMin: s.stockMin,
+          stockMax: s.stockMax,
+          ubicacion: s.ubicacion,
+        },
+      ]),
+    ),
   }));
 
-  const bajos = rows.filter((r) => r.cantidad <= r.stockMin).length;
-
   return (
-    <div className="space-y-8">
+    <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-black text-navy-950">Inventario</h1>
           <p className="mt-1 text-slate-500">
-            {localActual?.nombre} · {bajos > 0 ? `${bajos} productos requieren reposición` : "Todo en orden"}
+            {ajusta
+              ? "Stock por local, parámetros de reposición y catálogo"
+              : "Consulta del stock de tu local"}{" "}
+            · {items.length} productos activos
           </p>
-        </div>
-        {session.rol === "ADMINISTRADOR" && (
-          <nav className="flex gap-2" aria-label="Cambiar local">
-            {locales.map((l) => (
-              <a
-                key={l.id}
-                href={`/dashboard/inventario?local=${l.id}`}
-                className={`h-10 rounded-full px-5 text-sm font-bold leading-10 transition ${
-                  l.id === localId
-                    ? "bg-electric-600 text-white"
-                    : "border border-slate-300 bg-white text-slate-600 hover:border-electric-500"
-                }`}
+          {!ajusta && (
+            <p className="mt-1 text-sm text-slate-400">
+              Para mover stock usa{" "}
+              <Link
+                href="/dashboard/inventario/registrar"
+                className="font-bold text-electric-600 hover:underline"
               >
-                {l.comuna}
-              </a>
-            ))}
-          </nav>
+                Registrar documento
+              </Link>
+              . Los mínimos y ubicaciones los define bodega o administración.
+            </p>
+          )}
+        </div>
+        {ajusta && (
+          <ProductForm categorias={categorias.map((c) => ({ id: c.id, nombre: c.nombre }))} />
         )}
-        <a
-          href="/dashboard/inventario/movimientos"
-          className="h-10 rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold leading-10 text-slate-600 transition hover:border-electric-500 hover:text-electric-600"
-        >
-          Ver historial de movimientos →
-        </a>
       </div>
 
-      <section className="rounded-2xl border border-slate-200 bg-white p-6">
-        <h2 className="mb-4 text-lg font-bold text-navy-950">Registrar movimiento</h2>
-        <MovementForm
-          productos={productos.map((p) => ({ id: p.id, nombre: `${p.nombre} (${p.sku})` }))}
-          locales={locales.map((l) => ({ id: l.id, nombre: l.nombre }))}
-          localFijo={session.rol === "ADMINISTRADOR" ? null : session.localId}
-        />
-      </section>
-
-      <StockTable rows={rows} localId={localId} />
+      <StockTable
+        productos={items}
+        locales={locales.map((l) => ({ id: l.id, comuna: l.comuna }))}
+        localFijo={esRolGlobal(session.rol) ? null : session.localId}
+        categorias={categorias.map((c) => ({ id: c.id, nombre: c.nombre }))}
+        esAdmin={ajusta}
+        puedeAjustar={ajusta}
+        estadoInicial={estadoInicial}
+      />
     </div>
   );
 }

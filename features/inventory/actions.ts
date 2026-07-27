@@ -2,26 +2,138 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { getSession } from "@/lib/auth/session";
-import { puedeAcceder } from "@/lib/auth/permissions";
+import { esRolGlobal } from "@/lib/auth/permissions";
+import { exigirEscritura } from "@/lib/auth/guards";
 
 export interface ActionState {
   error?: string;
   ok?: string;
 }
 
-async function requireInventario() {
-  const session = await getSession();
-  if (!session || !puedeAcceder(session.rol, "inventario")) {
-    throw new Error("No autorizado");
-  }
-  return session;
-}
+// El permiso lo define el perfil sobre cada sección (Configuración › Perfiles).
+// Ocultar el botón no basta: la acción se puede llamar igual desde la consola.
 
 /** Valida que el usuario pueda operar sobre ese local. */
 function validaLocal(session: { rol: string; localId: string | null }, localId: string) {
-  if (session.rol === "ADMINISTRADOR") return true;
+  if (esRolGlobal(session.rol)) return true;
   return session.localId === localId;
+}
+
+function slugify(s: string): string {
+  return s
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)+/g, "");
+}
+
+/** Crea un producto nuevo. El catálogo es compartido por todos los locales y la tienda online. */
+export async function crearProducto(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  try {
+    await exigirEscritura("inventario.productos");
+
+    const nombre = String(formData.get("nombre") ?? "").trim();
+    const marca = String(formData.get("marca") ?? "").trim();
+    const categoriaId = String(formData.get("categoriaId") ?? "");
+    const skuRaw = String(formData.get("sku") ?? "").trim().toUpperCase();
+    const codigoBarra = String(formData.get("codigoBarra") ?? "").trim() || null;
+    const precioVenta = Math.trunc(Number(formData.get("precioVenta") ?? 0));
+    const precioCosto = Math.trunc(Number(formData.get("precioCosto") ?? 0));
+    const imagen = String(formData.get("imagen") ?? "").trim() || null;
+
+    if (!nombre || !marca || !categoriaId || precioVenta <= 0) {
+      return { error: "Completa nombre, marca, categoría y precio de venta." };
+    }
+    if (precioCosto < 0) return { error: "El precio costo no puede ser negativo." };
+    if (imagen && !imagen.startsWith("http") && !imagen.startsWith("/")) {
+      return { error: "La imagen debe ser una URL (https://…) o ruta local (/productos/…)." };
+    }
+
+    // SKU: usa el ingresado o genera uno a partir de marca + correlativo
+    let sku = skuRaw;
+    if (!sku) {
+      const prefijo = marca.replace(/[^A-Za-z]/g, "").slice(0, 3).toUpperCase() || "PRD";
+      const count = await prisma.producto.count({ where: { sku: { startsWith: prefijo } } });
+      sku = `${prefijo}-${String(count + 1).padStart(3, "0")}`;
+    }
+    const skuExiste = await prisma.producto.findUnique({ where: { sku } });
+    if (skuExiste) return { error: `El SKU ${sku} ya existe (${skuExiste.nombre}).` };
+
+    if (codigoBarra) {
+      const cbExiste = await prisma.producto.findUnique({ where: { codigoBarra } });
+      if (cbExiste) return { error: `El código de barra ya está asignado a ${cbExiste.nombre}.` };
+    }
+
+    // Slug único
+    let slug = slugify(nombre);
+    if (await prisma.producto.findUnique({ where: { slug } })) {
+      slug = `${slug}-${sku.toLowerCase()}`;
+    }
+
+    const producto = await prisma.producto.create({
+      data: { nombre, marca, categoriaId, sku, codigoBarra, slug, precioVenta, precioCosto, imagen },
+    });
+
+    revalidatePath("/dashboard/inventario");
+    revalidatePath("/dashboard/precios");
+    revalidatePath("/dashboard/pos"); // el POS cachea la grilla de precios
+    return { ok: `Producto creado: ${producto.nombre} (SKU ${producto.sku}). Ingresa su stock con un movimiento de Entrada.` };
+  } catch {
+    return { error: "Error al crear el producto." };
+  }
+}
+
+/** Edita la ficha maestra. Afecta a todos los locales y a la tienda online. */
+export async function editarProducto(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  try {
+    await exigirEscritura("inventario.productos");
+
+    const productoId = String(formData.get("productoId") ?? "");
+    const nombre = String(formData.get("nombre") ?? "").trim();
+    const marca = String(formData.get("marca") ?? "").trim();
+    const categoriaId = String(formData.get("categoriaId") ?? "");
+    const codigoBarra = String(formData.get("codigoBarra") ?? "").trim() || null;
+    const precioVenta = Math.trunc(Number(formData.get("precioVenta") ?? 0));
+    const precioCosto = Math.trunc(Number(formData.get("precioCosto") ?? 0));
+    const imagen = String(formData.get("imagen") ?? "").trim() || null;
+    const activo = formData.get("activo") === "on";
+
+    if (!productoId) return { error: "Producto no indicado." };
+    if (!nombre || !marca || !categoriaId || precioVenta <= 0) {
+      return { error: "Completa nombre, marca, categoría y precio de venta." };
+    }
+    if (precioCosto < 0) return { error: "El precio costo no puede ser negativo." };
+    if (imagen && !imagen.startsWith("http") && !imagen.startsWith("/")) {
+      return { error: "La imagen debe ser una URL (https://…) o ruta local (/productos/…)." };
+    }
+
+    if (codigoBarra) {
+      const cbExiste = await prisma.producto.findUnique({ where: { codigoBarra } });
+      if (cbExiste && cbExiste.id !== productoId) {
+        return { error: `El código de barra ya está asignado a ${cbExiste.nombre}.` };
+      }
+    }
+
+    await prisma.producto.update({
+      where: { id: productoId },
+      data: { nombre, marca, categoriaId, codigoBarra, precioVenta, precioCosto, imagen, activo },
+    });
+
+    revalidatePath("/dashboard/inventario");
+    revalidatePath("/dashboard/precios");
+    revalidatePath("/dashboard/pos"); // el POS cachea la grilla de precios
+    revalidatePath("/");
+    return { ok: `Producto actualizado${activo ? "" : " y desactivado (oculto en POS y tienda)"}.` };
+  } catch {
+    return { error: "Error al editar el producto." };
+  }
 }
 
 export async function actualizarParametros(
@@ -29,7 +141,7 @@ export async function actualizarParametros(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    const session = await requireInventario();
+    const session = await exigirEscritura("inventario.productos");
     const productoId = String(formData.get("productoId") ?? "");
     const localId = String(formData.get("localId") ?? "");
     const stockMin = Number(formData.get("stockMin") ?? 0);
@@ -62,7 +174,7 @@ export async function registrarMovimiento(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    const session = await requireInventario();
+    const session = await exigirEscritura("inventario.registrar");
 
     const tipo = String(formData.get("tipo") ?? "");
     const productoId = String(formData.get("productoId") ?? "");

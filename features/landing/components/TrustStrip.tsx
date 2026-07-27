@@ -21,7 +21,7 @@ export function TrustStrip({
       <Container className="grid gap-6 py-8 sm:grid-cols-3">
         {items.map((i) => (
           <div key={i.title} className="flex items-center gap-4">
-            <span aria-hidden="true" className="bg-flame h-10 w-1.5 shrink-0 rounded-full" />
+            <span aria-hidden="true" className="bg-electric-600 h-10 w-1.5 shrink-0 rounded-full" />
             <div>
               <p className="font-bold text-navy-950">{i.title}</p>
               <p className="text-sm text-slate-600">{i.sub}</p>

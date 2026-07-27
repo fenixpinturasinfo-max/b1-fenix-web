@@ -34,7 +34,7 @@ export function Testimonials() {
               key={t.name}
               className="flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-7"
             >
-              <div aria-hidden="true" className="text-flame text-4xl font-black leading-none">
+              <div aria-hidden="true" className="text-4xl font-black leading-none text-electric-600">
                 &ldquo;
               </div>
               <blockquote className="flex-1 text-slate-700">{t.quote}</blockquote>

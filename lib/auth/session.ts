@@ -8,7 +8,7 @@ export interface SessionPayload {
   sub: string; // userId
   email: string;
   nombre: string;
-  rol: "ADMINISTRADOR" | "JEFE_LOCAL" | "VENDEDOR" | "BODEGA";
+  rol: "ADMINISTRADOR" | "GERENTE" | "JEFE_LOCAL" | "VENDEDOR" | "BODEGA";
   localId: string | null;
   localNombre: string | null;
   [key: string]: unknown;

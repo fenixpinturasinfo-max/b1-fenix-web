@@ -13,10 +13,10 @@
   --color-fenix-400: #ff6b1a;
   --color-fenix-300: #ffa53c;
 
-  /* Azul eléctrico: estructura, enlaces, estados activos */
-  --color-electric-600: #1e4fe8;
-  --color-electric-500: #2e5bff;
-  --color-electric-50: #eef3ff;
+  /* Azul RAL 5010 (genciana): estructura, enlaces, estados activos */
+  --color-electric-600: #0e518d;
+  --color-electric-500: #1d6fb0;
+  --color-electric-50: #eaf2f9;
 
   --color-lime-400: #7cb518;
 
@@ -48,8 +48,20 @@
   }
 }
 
-/* Modo oscuro del dashboard: remapea los tokens dentro del contenedor .dark */
-.dark {
+/* Sidebar oculta: pantalla completa para el contenido */
+#dash-root.nav-oculta #dash-sidebar {
+  display: none !important;
+}
+
+/* Con la sidebar oculta, la marca aparece junto al botón del menú (escritorio) */
+@media (min-width: 640px) {
+  #dash-root.nav-oculta #topbar-brand {
+    display: flex;
+  }
+}
+
+/* Modo oscuro del dashboard: remapea los tokens solo dentro del sistema (#dash-root) */
+#dash-root.dark {
   --color-white: #141b2b;
   --color-cloud: #0d1220;
   --color-slate-100: #1e2739;

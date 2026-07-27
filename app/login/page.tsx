@@ -10,11 +10,36 @@ export default function LoginPage() {
   return (
     <main className="flex min-h-screen">
       {/* Panel de marca (desktop) */}
-      <aside className="relative hidden flex-1 flex-col justify-between overflow-hidden bg-[linear-gradient(160deg,#2e5bff,#1e4fe8_45%,#0d2db3)] p-10 lg:flex">
+      <aside className="relative hidden flex-1 flex-col justify-between overflow-hidden bg-[linear-gradient(160deg,#1d6fb0,#0e518d_45%,#093a66)] p-10 lg:flex">
         <div aria-hidden="true" className="pointer-events-none absolute inset-0">
           <div className="absolute -left-24 -top-24 h-96 w-96 rounded-full bg-white/10 blur-3xl" />
           <div className="absolute -bottom-32 -right-24 h-96 w-96 rounded-full bg-white/5 blur-3xl" />
         </div>
+
+        {/* Borde central tipo brochazo: la mitad clara "pintada" sobre el azul */}
+        <svg
+          aria-hidden="true"
+          viewBox="0 0 90 900"
+          preserveAspectRatio="none"
+          className="absolute -right-px top-0 h-full w-14 xl:w-20"
+        >
+          <path
+            fill="#f4f6fb"
+            d="M90,0 C45,60 72,150 50,240 C28,330 66,420 44,510 C24,600 62,690 42,780 C30,840 55,880 90,900 L90,0 Z"
+          />
+          <path
+            fill="#f4f6fb"
+            opacity="0.3"
+            d="M90,0 C30,80 60,190 34,300 C12,400 52,500 30,610 C14,700 48,800 26,900 L90,900 L90,0 Z"
+          />
+          <path
+            fill="none"
+            stroke="#ffffff"
+            strokeOpacity="0.25"
+            strokeWidth="2"
+            d="M62,0 C20,90 50,200 26,320 C8,420 44,530 22,650 C10,740 40,830 18,900"
+          />
+        </svg>
 
         <a href="/" className="relative flex items-center gap-3" aria-label="Volver a la tienda">
           <span className="ring-flame flex h-11 w-11 items-center justify-center overflow-hidden rounded-full bg-white">

@@ -19,7 +19,7 @@ export function Header({ comunas = "San Bernardo y Buin" }: { comunas?: string }
 
   return (
     <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/90 backdrop-blur-md">
-      <div className="bg-flame py-1.5 text-center text-xs font-semibold text-white sm:text-sm">
+      <div className="bg-electric-600 py-1.5 text-center text-xs font-semibold text-white sm:text-sm">
         🏪 Retiro en tienda {comunas} · Pide por WhatsApp
       </div>
       <Container className="flex h-16 items-center justify-between gap-4">

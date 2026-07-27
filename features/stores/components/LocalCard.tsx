@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { LocalForm, type LocalData } from "./LocalForm";
 import { toggleLocalActivo } from "../actions";
 
@@ -14,6 +14,16 @@ export function LocalCard({
   activo: boolean;
 }) {
   const [editing, setEditing] = useState(false);
+
+  // Cerrar el modal con Escape
+  useEffect(() => {
+    if (!editing) return;
+    const fn = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setEditing(false);
+    };
+    document.addEventListener("keydown", fn);
+    return () => document.removeEventListener("keydown", fn);
+  }, [editing]);
 
   return (
     <article className="rounded-2xl border border-slate-200 bg-white p-6">
@@ -31,6 +41,11 @@ export function LocalCard({
             >
               {activo ? "Activo" : "Inactivo"}
             </span>
+            {local.esMatriz && (
+              <span className="rounded-full bg-electric-50 px-2.5 py-0.5 text-xs font-bold text-electric-600">
+                Casa matriz
+              </span>
+            )}
           </div>
           <p className="mt-1 text-sm text-slate-600">
             {local.direccion}, {local.comuna}
@@ -41,10 +56,10 @@ export function LocalCard({
         <div className="flex gap-2">
           <button
             type="button"
-            onClick={() => setEditing((v) => !v)}
+            onClick={() => setEditing(true)}
             className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:border-electric-500 hover:text-electric-600"
           >
-            {editing ? "Cerrar" : "Editar"}
+            Editar
           </button>
           <form action={toggleLocalActivo}>
             <input type="hidden" name="id" value={local.id} />
@@ -64,8 +79,40 @@ export function LocalCard({
       </div>
 
       {editing && (
-        <div className="mt-5 border-t border-slate-200 pt-5">
-          <LocalForm local={local} onDone={() => setEditing(false)} />
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-navy-950/50 p-4"
+          onClick={() => setEditing(false)}
+          role="presentation"
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label={`Editar local ${local.nombre}`}
+            onClick={(e) => e.stopPropagation()}
+            className="max-h-[85vh] w-full max-w-2xl overflow-auto rounded-2xl bg-white p-6 shadow-2xl"
+          >
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-bold text-navy-950">
+                  ✏️ Editar local ·{" "}
+                  <span className="font-mono text-electric-600">{local.codigo}</span>{" "}
+                  {local.nombre}
+                </h2>
+                <p className="text-sm text-slate-500">
+                  Los cambios se reflejan al instante en la tienda online y el POS.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditing(false)}
+                aria-label="Cerrar"
+                className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-400 transition hover:bg-cloud hover:text-navy-950"
+              >
+                ✕
+              </button>
+            </div>
+            <LocalForm local={local} onDone={() => setEditing(false)} />
+          </div>
         </div>
       )}
     </article>

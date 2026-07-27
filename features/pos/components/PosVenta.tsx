@@ -1,8 +1,10 @@
 "use client";
 
-import { useActionState, useEffect, useMemo, useState } from "react";
+import { useActionState, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { registrarVenta, type ActionState } from "../actions";
+import { CierreVenta, TiraUltimaVenta, type VentaCerrada } from "./CierreVenta";
 import { formatCLP } from "@/lib/format";
+import { IconTrash } from "@/components/ui/icons";
 
 export interface PosProducto {
   id: string;
@@ -39,15 +41,58 @@ export function PosVenta({ cajaId, productos }: { cajaId: string; productos: Pos
   const [medioPago, setMedioPago] = useState("EFECTIVO");
   const [pagaCon, setPagaCon] = useState("");
   const [flash, setFlash] = useState<string | null>(null);
-  const [state, action, pending] = useActionState<ActionState, FormData>(registrarVenta, {});
+  /** Venta recién cobrada: se conserva aparte del carro, que ya se vació */
+  const [cerrada, setCerrada] = useState<VentaCerrada | null>(null);
+  const [modalCierre, setModalCierre] = useState(false);
+  /** Explícito, no derivado de que el carro esté vacío: si el cajero borra las líneas
+   *  a mano, la boleta anterior no debe reaparecer en medio de la venta nueva. */
+  const [mostrarTira, setMostrarTira] = useState(false);
+  const buscador = useRef<HTMLInputElement>(null);
+  const cobrando = useRef(false);
 
-  // Limpiar carro tras venta exitosa
-  useEffect(() => {
-    if (state.ventaCorrelativo) {
-      setLineas([]);
-      setPagaCon("");
-    }
-  }, [state.ventaCorrelativo]);
+  const [state, action, pending] = useActionState<ActionState, FormData>(
+    async (prev, fd) => {
+      try {
+        // El monto que entregó el cliente solo existe en el cliente: hay que guardarlo
+        // antes de vaciar el carro, o el vuelto desaparece justo al entregar el cambio.
+        const pago = pagaCon === "" ? null : Math.trunc(Number(pagaCon));
+        const medio = String(fd.get("medioPago") ?? medioPago);
+
+        const res = await registrarVenta(prev, fd);
+        if (!res.ventaCorrelativo) return res;
+
+        // El total viene del servidor, que recalcula los precios desde la BD. Tomarlo del
+        // carro daría un vuelto equivocado si el precio cambió con el POS abierto.
+        const cobrado = res.ventaTotal ?? 0;
+        setCerrada({
+          folio: res.ventaCorrelativo,
+          ventaId: res.ventaId ?? null,
+          total: cobrado,
+          pagoCon: medio === "EFECTIVO" ? pago : null,
+          vuelto: medio === "EFECTIVO" && pago !== null ? pago - cobrado : null,
+          medioPago: medio,
+        });
+        setModalCierre(true);
+        setMostrarTira(true);
+        setLineas([]);
+        setPagaCon("");
+        return res;
+      } finally {
+        cobrando.current = false;
+      }
+    },
+    {},
+  );
+
+  /**
+   * Cierra el cierre de venta y deja el POS listo para la siguiente.
+   * Si el cajero ya empezó a escanear, esa primera tecla no se pierde.
+   */
+  const nuevaVenta = useCallback((charInicial?: string) => {
+    setModalCierre(false);
+    setQuery(charInicial ?? "");
+    buscador.current?.focus();
+  }, []);
 
   // Feedback visual al agregar
   useEffect(() => {
@@ -64,23 +109,28 @@ export function PosVenta({ cajaId, productos }: { cajaId: string; productos: Pos
   const q = query.trim().toLowerCase();
   const visibles = useMemo(
     () =>
-      productos.filter((p) => {
-        if (cat !== "todas" && p.categoria !== cat) return false;
-        if (
-          q &&
-          !p.nombre.toLowerCase().includes(q) &&
-          !p.sku.toLowerCase().includes(q) &&
-          !p.marca.toLowerCase().includes(q) &&
-          !(p.codigoBarra ?? "").includes(q)
-        )
-          return false;
-        return true;
-      }),
+      productos
+        .filter((p) => {
+          if (cat !== "todas" && p.categoria !== cat) return false;
+          if (
+            q &&
+            !p.nombre.toLowerCase().includes(q) &&
+            !p.sku.toLowerCase().includes(q) &&
+            !p.marca.toLowerCase().includes(q) &&
+            !(p.codigoBarra ?? "").includes(q)
+          )
+            return false;
+          return true;
+        })
+        // Con stock primero; los sin stock quedan visibles al final
+        .sort((a, b) => Number(b.stock > 0) - Number(a.stock > 0)),
     [q, cat, productos],
   );
 
   const agregar = (p: PosProducto) => {
     if (p.stock <= 0) return;
+    // Empezó la venta siguiente: la boleta anterior deja de estar a mano
+    setMostrarTira(false);
     setLineas((ls) => {
       const existe = ls.find((l) => l.producto.id === p.id);
       if (existe) {
@@ -93,6 +143,8 @@ export function PosVenta({ cajaId, productos }: { cajaId: string; productos: Pos
       return [...ls, { producto: p, cantidad: 1 }];
     });
     setFlash(p.id);
+    // Volver al catálogo completo para la siguiente búsqueda
+    setQuery("");
   };
 
   /** Escáner: código + Enter agrega directo. */
@@ -143,16 +195,30 @@ export function PosVenta({ cajaId, productos }: { cajaId: string; productos: Pos
       {/* Catálogo */}
       <div className="lg:col-span-3">
         <label htmlFor="pos-buscar" className="sr-only">Buscar producto</label>
-        <input
-          id="pos-buscar"
-          type="search"
-          autoFocus
-          placeholder="Escanea o busca por nombre, SKU, marca o código…"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={onScan}
-          className="h-14 w-full rounded-2xl border-2 border-slate-300 bg-white px-5 text-lg text-navy-950 outline-none transition focus:border-electric-500"
-        />
+        <div className="relative">
+          <input
+            id="pos-buscar"
+            ref={buscador}
+            type="search"
+            autoFocus
+            placeholder="Escanea o busca por nombre, SKU, marca o código…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={onScan}
+            className="h-14 w-full rounded-2xl border-2 border-slate-300 bg-white px-5 pr-12 text-lg text-navy-950 outline-none transition focus:border-electric-500"
+          />
+          {query && (
+            <button
+              type="button"
+              onClick={() => setQuery("")}
+              aria-label="Limpiar búsqueda y ver todos los artículos"
+              title="Ver todos los artículos"
+              className="absolute right-3 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg text-slate-400 transition hover:bg-cloud hover:text-navy-950"
+            >
+              ✕
+            </button>
+          )}
+        </div>
 
         {/* Chips de categoría */}
         <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
@@ -186,7 +252,12 @@ export function PosVenta({ cajaId, productos }: { cajaId: string; productos: Pos
         </div>
 
         {/* Grilla de tarjetas */}
-        <div className="mt-4 grid max-h-[62vh] grid-cols-2 content-start gap-3 overflow-y-auto pr-1 sm:grid-cols-3 xl:grid-cols-4">
+        <p className="mt-3 text-xs text-slate-400">
+          {visibles.length} artículo{visibles.length === 1 ? "" : "s"}
+          {cat !== "todas" ? ` en ${cat}` : ""}
+          {q ? ` para “${query.trim()}”` : ""}
+        </p>
+        <div className="mt-2 grid max-h-[calc(100vh-330px)] grid-cols-2 content-start gap-2 overflow-y-auto pr-1 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
           {visibles.map((p) => (
             <button
               key={p.id}
@@ -199,7 +270,7 @@ export function PosVenta({ cajaId, productos }: { cajaId: string; productos: Pos
                   : "border-slate-200 hover:-translate-y-0.5 hover:border-electric-500 hover:shadow-card"
               }`}
             >
-              <div className="relative flex h-24 items-center justify-center bg-cloud">
+              <div className="relative flex h-14 items-center justify-center bg-cloud">
                 {p.imagen ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
@@ -223,14 +294,14 @@ export function PosVenta({ cajaId, productos }: { cajaId: string; productos: Pos
                   {p.stock <= 0 ? "Sin stock" : `${p.stock} un.`}
                 </span>
               </div>
-              <div className="flex flex-1 flex-col p-3">
-                <p className="text-[10px] font-bold uppercase tracking-wider text-electric-600">
+              <div className="flex flex-1 flex-col p-2">
+                <p className="text-[9px] font-bold uppercase tracking-wider text-electric-600">
                   {p.marca}
                 </p>
-                <p className="line-clamp-2 text-sm font-semibold leading-tight text-navy-950">
+                <p className="line-clamp-2 text-xs font-semibold leading-tight text-navy-950">
                   {p.nombre}
                 </p>
-                <p className="mt-auto pt-1.5 font-black tabular-nums text-navy-950">
+                <p className="mt-auto pt-1 text-sm font-black tabular-nums text-navy-950">
                   {formatCLP(p.precioVenta)}
                 </p>
               </div>
@@ -245,59 +316,99 @@ export function PosVenta({ cajaId, productos }: { cajaId: string; productos: Pos
       </div>
 
       {/* Carro */}
-      <div className="flex flex-col rounded-2xl border border-slate-200 bg-white p-5 lg:col-span-2 lg:max-h-[78vh]">
+      <div className="flex flex-col rounded-2xl border border-slate-200 bg-white p-5 lg:sticky lg:top-4 lg:col-span-2 lg:max-h-[calc(100vh-140px)] lg:self-start">
+        {/* Rastro de la venta anterior: se va con el primer producto de la siguiente */}
+        {cerrada && mostrarTira && (
+          <TiraUltimaVenta
+            venta={cerrada}
+            onVerCierre={() => setModalCierre(true)}
+            onDescartar={() => setMostrarTira(false)}
+          />
+        )}
+
         <h2 className="mb-3 flex items-center justify-between text-lg font-bold text-navy-950">
           Venta actual
           {nItems > 0 && (
             <span className="rounded-full bg-electric-50 px-3 py-1 text-xs font-bold text-electric-600">
-              {nItems} ítems
+              {nItems} un.
             </span>
           )}
         </h2>
 
         {lineas.length === 0 ? (
           <p className="py-8 text-center text-sm text-slate-400">
-            Toca un producto para agregarlo.
+            {cerrada
+              ? "Escanea o toca un producto para la siguiente venta."
+              : "Toca un producto para agregarlo."}
           </p>
         ) : (
-          <ul className="flex-1 space-y-3 overflow-y-auto pr-1">
+          <ul className="max-h-[38vh] min-h-0 divide-y divide-slate-100 overflow-y-auto pr-1 lg:max-h-none lg:flex-1">
             {lineas.map((l) => (
-              <li key={l.producto.id} className="rounded-xl border border-slate-200 p-3">
-                <div className="flex items-start justify-between gap-2">
-                  <p className="text-sm font-semibold text-navy-950">{l.producto.nombre}</p>
+              <li key={l.producto.id} className="flex items-center gap-2 py-1.5">
+                {/* Cantidad compacta */}
+                <div className="flex shrink-0 items-center overflow-hidden rounded-lg border border-slate-300">
                   <button
                     type="button"
-                    onClick={() => setCantidad(l.producto.id, 0)}
-                    className="text-xs text-slate-400 hover:text-fenix-600"
-                    aria-label={`Quitar ${l.producto.nombre}`}
+                    onClick={() => setCantidad(l.producto.id, l.cantidad - 1)}
+                    className="h-7 w-7 bg-cloud/60 text-sm font-bold text-navy-950 transition hover:bg-electric-50 hover:text-electric-600"
+                    aria-label={`Disminuir ${l.producto.nombre}`}
                   >
-                    ✕
+                    −
+                  </button>
+                  <input
+                    type="number"
+                    min={1}
+                    max={l.producto.stock}
+                    value={l.cantidad}
+                    onChange={(e) =>
+                      setCantidad(
+                        l.producto.id,
+                        Math.max(1, Math.trunc(Number(e.target.value)) || 1),
+                      )
+                    }
+                    aria-label={`Cantidad de ${l.producto.nombre}`}
+                    className="h-7 w-9 border-x border-slate-300 bg-white text-center text-xs font-bold text-navy-950 outline-none focus:bg-electric-50/40 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setCantidad(l.producto.id, l.cantidad + 1)}
+                    disabled={l.cantidad >= l.producto.stock}
+                    className="h-7 w-7 bg-cloud/60 text-sm font-bold text-navy-950 transition hover:bg-electric-50 hover:text-electric-600 disabled:opacity-30"
+                    aria-label={`Aumentar ${l.producto.nombre}`}
+                  >
+                    +
                   </button>
                 </div>
-                <div className="mt-2 flex items-center justify-between">
-                  <div className="flex items-center rounded-lg border border-slate-300">
-                    <button
-                      type="button"
-                      onClick={() => setCantidad(l.producto.id, l.cantidad - 1)}
-                      className="h-9 w-9 font-bold text-navy-950 hover:bg-cloud"
-                      aria-label="Disminuir"
-                    >
-                      −
-                    </button>
-                    <span className="w-8 text-center text-sm font-bold text-navy-950">{l.cantidad}</span>
-                    <button
-                      type="button"
-                      onClick={() => setCantidad(l.producto.id, l.cantidad + 1)}
-                      className="h-9 w-9 font-bold text-navy-950 hover:bg-cloud"
-                      aria-label="Aumentar"
-                    >
-                      +
-                    </button>
-                  </div>
-                  <span className="font-bold tabular-nums text-navy-950">
-                    {formatCLP(l.cantidad * l.producto.precioVenta)}
-                  </span>
+
+                {/* Producto */}
+                <div className="min-w-0 flex-1">
+                  <p
+                    className="truncate text-[13px] font-semibold leading-tight text-navy-950"
+                    title={l.producto.nombre}
+                  >
+                    {l.producto.nombre}
+                  </p>
+                  <p className="text-[11px] leading-tight text-slate-400">
+                    {formatCLP(l.producto.precioVenta)} c/u
+                    {l.cantidad >= l.producto.stock && (
+                      <b className="text-[#b45309]"> · máx {l.producto.stock}</b>
+                    )}
+                  </p>
                 </div>
+
+                {/* Subtotal + quitar */}
+                <span className="shrink-0 text-[13px] font-bold tabular-nums text-navy-950">
+                  {formatCLP(l.cantidad * l.producto.precioVenta)}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setCantidad(l.producto.id, 0)}
+                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-slate-300 transition hover:bg-fenix-600/10 hover:text-fenix-600"
+                  aria-label={`Eliminar ${l.producto.nombre} de la venta`}
+                  title="Eliminar de la venta"
+                >
+                  <IconTrash size={14} />
+                </button>
               </li>
             ))}
           </ul>
@@ -309,7 +420,20 @@ export function PosVenta({ cajaId, productos }: { cajaId: string; productos: Pos
             <span className="font-black tabular-nums text-navy-950">{formatCLP(total)}</span>
           </div>
 
-          <form action={action} className="space-y-3">
+          <form
+            action={action}
+            onSubmit={(e) => {
+              // Dos clics en el mismo frame envían dos veces. `pending` recién existe tras
+              // el re-render y useActionState encola, así que el segundo llegaría igual y
+              // registraría otra venta con doble descuento de stock. Se corta acá.
+              if (cobrando.current) {
+                e.preventDefault();
+                return;
+              }
+              cobrando.current = true;
+            }}
+            className="space-y-3"
+          >
             <input type="hidden" name="cajaId" value={cajaId} />
             <input
               type="hidden"
@@ -388,22 +512,6 @@ export function PosVenta({ cajaId, productos }: { cajaId: string; productos: Pos
             {state.error && (
               <p role="alert" className="text-sm font-semibold text-fenix-600">{state.error}</p>
             )}
-            {state.ventaCorrelativo && (
-              <div role="status" className="rounded-xl border border-lime-400/40 bg-lime-400/15 px-4 py-3 text-center">
-                <p className="text-xs font-semibold uppercase tracking-wider text-[#4d7c0f]">
-                  Venta registrada · Boleta
-                </p>
-                <p className="font-mono text-2xl font-black text-navy-950">{state.ventaCorrelativo}</p>
-                {state.ventaId && (
-                  <a
-                    href={`/dashboard/pos/boletas/${state.ventaId}`}
-                    className="mt-1 inline-block text-sm font-bold text-electric-600 underline-offset-4 hover:underline"
-                  >
-                    Ver / imprimir boleta →
-                  </a>
-                )}
-              </div>
-            )}
 
             <button
               type="submit"
@@ -413,8 +521,15 @@ export function PosVenta({ cajaId, productos }: { cajaId: string; productos: Pos
               {pending ? "Registrando…" : `Cobrar ${formatCLP(total)}`}
             </button>
           </form>
+
+          {/* El cierre se muestra en CierreVenta, fuera del panel: el aviso pegado acá
+              permitía imprimir la boleta anterior mientras se cargaba la siguiente. */}
         </div>
       </div>
+
+      {cerrada && modalCierre && (
+        <CierreVenta venta={cerrada} onNuevaVenta={nuevaVenta} />
+      )}
     </div>
   );
 }

@@ -11,6 +11,7 @@ import { Stores } from "@/features/landing/components/Stores";
 import { Footer } from "@/features/landing/components/Footer";
 import { CartDrawer } from "@/features/cart/components/CartDrawer";
 import { FloatingWhatsApp } from "@/features/landing/components/FloatingWhatsApp";
+import { SectionDivider } from "@/components/ui/SectionDivider";
 import { prisma } from "@/lib/prisma";
 import { toLocalPublico, type LocalPublico } from "@/features/stores/lib";
 import { locations } from "@/features/stores/data/locations";
@@ -63,6 +64,7 @@ export default async function Home() {
         <Testimonials />
         <Brands />
         <Stores locales={locales} />
+        <SectionDivider from="#f4f6fb" to="#093a66" />
       </main>
       <Footer />
       <CartDrawer

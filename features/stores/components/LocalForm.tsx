@@ -10,6 +10,7 @@ export interface LocalData {
   direccion: string;
   comuna: string;
   horario: string | null;
+  esMatriz?: boolean;
 }
 
 const input =
@@ -85,6 +86,17 @@ export function LocalForm({ local, onDone }: { local?: LocalData; onDone?: () =>
           placeholder="Lun a Vie 9:00–18:30 · Sáb 9:30–14:00"
           className={input}
         />
+      </div>
+      <div className="flex items-end">
+        <label className="flex h-11 items-center gap-2 text-sm font-semibold text-slate-700">
+          <input
+            type="checkbox"
+            name="esMatriz"
+            defaultChecked={local?.esMatriz}
+            className="h-4 w-4 accent-[#0e518d]"
+          />
+          Casa matriz (recibe solicitudes de reposición)
+        </label>
       </div>
       <div className="flex items-end gap-2">
         <button

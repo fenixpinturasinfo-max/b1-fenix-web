@@ -3,7 +3,8 @@
 import { revalidatePath } from "next/cache";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
-import { getSession } from "@/lib/auth/session";
+import { exigirEscritura } from "@/lib/auth/guards";
+import { ROLES, SIN_LOCAL, type RolValido } from "./roles";
 
 export interface ActionState {
   error?: string;
@@ -11,15 +12,8 @@ export interface ActionState {
 }
 
 async function requireAdmin() {
-  const session = await getSession();
-  if (!session || session.rol !== "ADMINISTRADOR") {
-    throw new Error("No autorizado");
-  }
-  return session;
+  return exigirEscritura("config.usuarios");
 }
-
-const ROLES = ["ADMINISTRADOR", "JEFE_LOCAL", "VENDEDOR", "BODEGA"] as const;
-type RolValido = (typeof ROLES)[number];
 
 export async function crearUsuario(
   _prev: ActionState,
@@ -40,7 +34,7 @@ export async function crearUsuario(
     if (password.length < 8) {
       return { error: "La contraseña debe tener al menos 8 caracteres." };
     }
-    if (rol !== "ADMINISTRADOR" && !localId) {
+    if (!SIN_LOCAL.includes(rol) && !localId) {
       return { error: "Asigna un local para este rol." };
     }
 
@@ -53,11 +47,11 @@ export async function crearUsuario(
         email,
         passwordHash: await bcrypt.hash(password, 10),
         rol,
-        localId: rol === "ADMINISTRADOR" ? null : localId,
+        localId: SIN_LOCAL.includes(rol) ? null : localId,
       },
     });
 
-    revalidatePath("/dashboard/usuarios");
+    revalidatePath("/dashboard/configuracion/usuarios");
     return { ok: `Usuario ${nombre} creado.` };
   } catch {
     return { error: "No autorizado o error al crear." };
@@ -76,7 +70,7 @@ export async function toggleUsuarioActivo(formData: FormData) {
     where: { id },
     data: { activo: !usuario.activo },
   });
-  revalidatePath("/dashboard/usuarios");
+  revalidatePath("/dashboard/configuracion/usuarios");
 }
 
 export async function resetPassword(
@@ -94,7 +88,7 @@ export async function resetPassword(
       where: { id },
       data: { passwordHash: await bcrypt.hash(password, 10) },
     });
-    revalidatePath("/dashboard/usuarios");
+    revalidatePath("/dashboard/configuracion/usuarios");
     return { ok: "Contraseña actualizada." };
   } catch {
     return { error: "Error al actualizar la contraseña." };

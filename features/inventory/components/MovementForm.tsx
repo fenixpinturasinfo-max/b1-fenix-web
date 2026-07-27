@@ -15,10 +15,12 @@ export function MovementForm({
   productos,
   locales,
   localFijo,
+  productoDefault,
 }: {
   productos: Option[];
   locales: Option[];
   localFijo: string | null; // id del local del usuario (null = admin elige)
+  productoDefault?: string; // preselección al venir desde la tabla de stock
 }) {
   const [state, action, pending] = useActionState<ActionState, FormData>(
     registrarMovimiento,
@@ -30,7 +32,13 @@ export function MovementForm({
     <form action={action} className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
       <div className="sm:col-span-2 lg:col-span-1">
         <label htmlFor="m-producto" className="mb-1 block text-sm font-semibold text-slate-700">Producto</label>
-        <select id="m-producto" name="productoId" required className={input}>
+        <select
+          id="m-producto"
+          name="productoId"
+          required
+          className={input}
+          defaultValue={productoDefault ?? ""}
+        >
           <option value="">— Selecciona —</option>
           {productos.map((p) => (
             <option key={p.id} value={p.id}>{p.nombre}</option>

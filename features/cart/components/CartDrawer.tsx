@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import { cartTotal, useCart } from "../store";
 import { formatCLP } from "@/lib/format";
 import { buildOrderUrl } from "@/lib/whatsapp";
+import { IconTrash } from "@/components/ui/icons";
 
 export interface CartLocal {
   id: string;
@@ -82,10 +83,11 @@ export function CartDrawer({ locales }: { locales: CartLocal[] }) {
                     <button
                       type="button"
                       onClick={() => remove(product.sku)}
-                      aria-label={`Quitar ${product.nombre}`}
-                      className="text-sm text-slate-400 transition hover:text-electric-600"
+                      aria-label={`Eliminar ${product.nombre} del carro`}
+                      title="Eliminar del carro"
+                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-slate-400 transition hover:bg-fenix-600/10 hover:text-fenix-600"
                     >
-                      Quitar
+                      <IconTrash size={16} />
                     </button>
                   </div>
                   <div className="mt-3 flex items-center justify-between">

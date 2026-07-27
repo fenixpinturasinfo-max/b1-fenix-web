@@ -4,11 +4,11 @@ import { buildAdvisoryUrl } from "@/lib/whatsapp";
 
 export function Footer() {
   return (
-    <footer id="contacto" className="border-t border-navy-800 bg-navy-950 py-14">
+    <footer id="contacto" className="bg-[#093a66] py-14">
       <Container className="grid gap-10 sm:grid-cols-3">
         <div>
           <div className="flex items-center gap-3">
-            <span className="ring-flame flex h-11 w-11 items-center justify-center overflow-hidden rounded-full bg-white">
+            <span className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-full border-2 border-white/30 bg-white">
               <Image
                 src="/logo-fenix.png?v=2"
                 alt="Logo Pinturas Fenix"
@@ -71,7 +71,7 @@ export function Footer() {
           </ul>
         </div>
       </Container>
-      <Container className="mt-10 border-t border-navy-800 pt-6">
+      <Container className="mt-10 border-t border-white/15 pt-6">
         <p className="text-xs text-mist/50">
           © {new Date().getFullYear()} Pinturas Fenix. Todos los derechos reservados.
         </p>

@@ -88,6 +88,85 @@ async function main() {
   }
   console.log(`✓ ${nProductos} productos`);
 
+  // ── Socios de negocios (3 proveedores + 3 clientes de ejemplo) ──
+  const socios = [
+    {
+      tipo: "PROVEEDOR" as const,
+      rut: "76111222-3",
+      razonSocial: "Distribuidora Sikkens Chile SpA",
+      nombreFantasia: "Sikkens Chile",
+      giro: "Distribución de pinturas automotrices",
+      // Correo de prueba (modo sandbox de Resend: solo envía al dueño de la cuenta)
+      email: "nelson.soto@kyros.cl",
+      telefono: "+56 2 2555 1001",
+      comuna: "Santiago",
+      condicionPago: "30D",
+    },
+    {
+      tipo: "PROVEEDOR" as const,
+      rut: "77333444-5",
+      razonSocial: "Importadora 3M Insumos Ltda",
+      nombreFantasia: "3M Insumos",
+      giro: "Importación de abrasivos y adhesivos",
+      email: "nelson.soto@kyros.cl",
+      telefono: "+56 2 2555 2002",
+      comuna: "Quilicura",
+      condicionPago: "60D",
+    },
+    {
+      tipo: "PROVEEDOR" as const,
+      rut: "78555666-7",
+      razonSocial: "Comercial Menzerna Sur SpA",
+      nombreFantasia: "Menzerna Sur",
+      giro: "Productos de pulido y detailing",
+      email: "nelson.soto@kyros.cl",
+      telefono: "+56 2 2555 3003",
+      comuna: "San Bernardo",
+      condicionPago: "CONTADO",
+    },
+    {
+      tipo: "CLIENTE" as const,
+      rut: "76888999-0",
+      razonSocial: "Taller DyP El Maestro Ltda",
+      nombreFantasia: "Taller El Maestro",
+      giro: "Desabolladura y pintura",
+      email: "taller.elmaestro@gmail.com",
+      telefono: "+56 9 8111 1111",
+      comuna: "San Bernardo",
+      condicionPago: "CONTADO",
+    },
+    {
+      tipo: "CLIENTE" as const,
+      rut: "77222333-K",
+      razonSocial: "Automotora Buin Motors SpA",
+      nombreFantasia: "Buin Motors",
+      giro: "Compraventa de vehículos",
+      email: "compras@buinmotors.cl",
+      telefono: "+56 9 8222 2222",
+      comuna: "Buin",
+      condicionPago: "30D",
+    },
+    {
+      tipo: "CLIENTE" as const,
+      rut: "78444555-6",
+      razonSocial: "Detailing Pro Chile EIRL",
+      nombreFantasia: "Detailing Pro",
+      giro: "Estética automotriz",
+      email: "hola@detailingpro.cl",
+      telefono: "+56 9 8333 3333",
+      comuna: "Santiago",
+      condicionPago: "CONTADO",
+    },
+  ];
+  for (const s of socios) {
+    await prisma.socioNegocio.upsert({
+      where: { rut_tipo: { rut: s.rut, tipo: s.tipo } },
+      update: { razonSocial: s.razonSocial, email: s.email, condicionPago: s.condicionPago },
+      create: s,
+    });
+  }
+  console.log(`✓ ${socios.length} socios de negocios (3 proveedores + 3 clientes)`);
+
   // ── Usuario administrador ──
   const adminEmail = "admin@pinturasfenix.cl";
   const adminPassword = "Fenix2026!"; // ⚠️ cambiar después del primer login
