@@ -186,6 +186,14 @@ export const SECCIONES: Seccion[] = [
     descripcion: "Historial de boletas emitidas y envío por correo",
   },
   {
+    id: "ventas.facturas",
+    modulo: "ventas",
+    label: "Facturas",
+    href: "/dashboard/ventas/facturas",
+    permiteLectura: true,
+    descripcion: "Facturas de venta a clientes empresa y cuentas por cobrar",
+  },
+  {
     id: "ventas.partidas",
     modulo: "ventas",
     label: "Lista de partidas",
@@ -391,6 +399,7 @@ export const MATRIZ_DEFECTO: Record<string, Record<string, Nivel>> = {
     "ventas.pedidos": "TOTAL",
     "ventas.pos": "TOTAL",
     "ventas.boletas": "TOTAL",
+    "ventas.facturas": "TOTAL",
     "ventas.partidas": "TOTAL",
     "socios.socios": "TOTAL",
     "reportes.mi-turno": "TOTAL",
@@ -411,6 +420,8 @@ export const MATRIZ_DEFECTO: Record<string, Record<string, Nivel>> = {
     "ventas.pedidos": "TOTAL",
     "ventas.pos": "TOTAL",
     "ventas.boletas": "TOTAL",
+    // Factura a crédito: la emite el encargado, no el vendedor de mostrador
+    "ventas.facturas": "TOTAL",
     "ventas.partidas": "TOTAL",
     "reportes.mi-turno": "TOTAL",
     "reportes.general": "TOTAL",

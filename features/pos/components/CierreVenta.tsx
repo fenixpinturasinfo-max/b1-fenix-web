@@ -13,6 +13,7 @@ export interface VentaCerrada {
   pagoCon: number | null;
   vuelto: number | null;
   medioPago: string;
+  premium: boolean;
 }
 
 /** Elementos donde una tecla significa otra cosa y no debemos interceptarla */
@@ -152,9 +153,16 @@ export function CierreVenta({
           )}
         </div>
 
-        <p className="mt-4 flex items-center justify-center gap-2 text-sm text-slate-500">
+        <p className="mt-4 flex flex-wrap items-center justify-center gap-2 text-sm text-slate-500">
           Boleta
           <span className="font-mono text-base font-black text-navy-950">{venta.folio}</span>
+          {/* Confirmación de que la marca quedó: activarla y no verla reflejada haría
+              que el cajero dude y revise la boleta impresa para asegurarse. */}
+          {venta.premium && (
+            <span className="rounded-full bg-[#f59e0b]/15 px-2.5 py-0.5 text-xs font-bold text-[#b45309]">
+              ⭐ Premium
+            </span>
+          )}
         </p>
 
         <button

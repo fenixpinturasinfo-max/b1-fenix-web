@@ -181,6 +181,18 @@ export function horaActual(ref: Date = new Date()): number {
   return partesSantiago(ref).hour;
 }
 
+/**
+ * Días de calendario chilenos entre dos instantes, positivo si `hasta` es posterior.
+ *
+ * Se comparan medianoches, no se divide la diferencia bruta por 24 h: los dos días del
+ * cambio de horario duran 23 y 25 horas, y el redondeo absorbe ese resto.
+ */
+export function diasEntre(desde: Date, hasta: Date = new Date()): number {
+  const a = inicioDia(desde).getTime();
+  const b = inicioDia(hasta).getTime();
+  return Math.round((b - a) / 86_400_000);
+}
+
 // ─────────────────────────────── Formatos ───────────────────────────────
 // Usar `fmtFechaHora` / `fmtFecha` para campos de timestamp (creadoEn, cerradaEn…)
 // y `fmtFechaSola` para campos de fecha pura (fechaRequerida, fechaEmision…), que el

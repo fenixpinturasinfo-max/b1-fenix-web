@@ -66,6 +66,10 @@ model Usuario {
   pedidosCreados       PedidoCliente[]
   tomasCreadas         TomaInventario[] @relation("TomasCreadas")
   tomasAplicadas       TomaInventario[] @relation("TomasAplicadas")
+  tomasAnuladas        TomaInventario[] @relation("TomasAnuladas")
+  lineasContadas       TomaLinea[]      @relation("LineasContadas")
+  facturasVentaCreadas FacturaVenta[]   @relation("FacturasVentaCreadas")
+  facturasVentaAnuladas FacturaVenta[]  @relation("FacturasVentaAnuladas")
 
   @@index([localId])
 }
@@ -93,6 +97,7 @@ model Local {
   ordenesCompraDestino OrdenCompra[]
   entradasCompra       EntradaCompra[]
   pedidos              PedidoCliente[]
+  facturasVenta        FacturaVenta[]
   tomas                TomaInventario[]
 }
 
@@ -134,6 +139,7 @@ model Producto {
   ncLineas      NotaCreditoLinea[]
   preciosCompra PrecioCompraProveedor[]
   pedidoLineas  PedidoClienteLinea[]
+  facturaVentaLineas FacturaVentaLinea[]
   tomaLineas    TomaLinea[]
 
   @@index([categoriaId])
@@ -181,6 +187,9 @@ model MovimientoInventario {
   // Referencias cruzadas: venta asociada o transferencia hermana
   ventaId    String?
   venta      Venta?         @relation(fields: [ventaId], references: [id])
+  // Salida por factura de venta: el equivalente de `ventaId` para el camino sin caja
+  facturaVentaId String?
+  facturaVenta   FacturaVenta? @relation(fields: [facturaVentaId], references: [id])
   transferenciaPar String?  // id del movimiento espejo en el otro local
   // Toma de inventario que lo originó, para poder auditar hacia atrás
   tomaLineaId String?     @unique
@@ -199,6 +208,22 @@ enum EstadoToma {
   CONTADA   // conteo cerrado, esperando revisión
   APLICADA  // los ajustes ya tocaron el stock
   ANULADA
+}
+
+/// De dónde salió la línea: el alcance con que se abrió la toma, o alguien que la agregó.
+/// Seis faltantes en productos que el alcance no incluía significan algo distinto que
+/// seis faltantes en el pasillo que se pidió contar.
+enum OrigenLinea {
+  ALCANCE
+  AGREGADA_MANUAL
+  AGREGADA_IMPORT
+}
+
+/// Cómo se digitó el conteo. Una cifra que pasó por una planilla fuera del sistema
+/// merece otro nivel de confianza que una tecleada frente al producto.
+enum OrigenConteo {
+  MOVIL
+  PLANILLA
 }
 
 enum AlcanceToma {
@@ -235,10 +260,19 @@ model TomaInventario {
   creadoPorId String
   creadoPor   Usuario     @relation("TomasCreadas", fields: [creadoPorId], references: [id])
   creadoEn    DateTime    @default(now())
+  /// Cuándo se contó de verdad, no cuándo se digitó. De acá sale el `contadoEn` de las
+  /// líneas importadas por planilla: si se cuenta el lunes y se importa el miércoles, con
+  /// la fecha del upload las ventas del martes aparecerían como faltantes inventados.
+  fechaConteo DateTime?
   cerradaEn   DateTime?
   aplicadaPorId String?
   aplicadaPor   Usuario?  @relation("TomasAplicadas", fields: [aplicadaPorId], references: [id])
   aplicadaEn    DateTime?
+  /// Anular descarta el conteo sin tocar el stock: queda quién, cuándo y por qué
+  anuladaPorId  String?
+  anuladaPor    Usuario?  @relation("TomasAnuladas", fields: [anuladaPorId], references: [id])
+  anuladaEn     DateTime?
+  motivoAnulacion String?
 
   lineas TomaLinea[]
 
@@ -256,6 +290,10 @@ model TomaLinea {
   contado    Int?
   /// Para descontar los movimientos ocurridos después del conteo
   contadoEn  DateTime?
+  contadoPorId String?
+  contadoPor   Usuario?     @relation("LineasContadas", fields: [contadoPorId], references: [id])
+  origen       OrigenLinea  @default(ALCANCE)
+  origenConteo OrigenConteo?
   motivo     MotivoAjuste?
   /// Se marca cuando el contador la saltó: vuelve al final de la cola
   saltada    Boolean        @default(false)
@@ -295,6 +333,9 @@ model Venta {
   subtotal    Int
   descuento   Int         @default(0)
   total       Int
+  /// Marca comercial de la venta. No afecta subtotal ni total: existe para poder medir
+  /// cuántas ventas Premium hace cada vendedor y cada local.
+  premium     Boolean     @default(false)
   creadoEn    DateTime    @default(now())
 
   detalle     DetalleVenta[]
@@ -302,6 +343,7 @@ model Venta {
 
   @@unique([localId, correlativo])
   @@index([localId, creadoEn])
+  @@index([localId, premium, creadoEn])
   @@index([cajaSesionId])
   // "Mi turno" filtra por vendedor sobre la tabla que más crece
   @@index([usuarioId, creadoEn])
@@ -329,6 +371,7 @@ enum EstadoPedido {
   PENDIENTE // registrado, por preparar
   PREPARADO // listo para retiro/entrega
   ENTREGADO // retirado por el cliente (el cobro/stock pasa por el POS)
+  FACTURADO // se emitió factura de venta: el stock ya salió, no pasa por el POS
   ANULADO
 }
 
@@ -352,9 +395,73 @@ model PedidoCliente {
   entregadoEn DateTime?
 
   lineas PedidoClienteLinea[]
+  factura FacturaVenta?
 
   @@index([estado, creadoEn])
   @@index([localId])
+}
+
+/// Factura de venta.
+///
+/// A diferencia del pedido —que solo reserva— la factura **es la venta**: descuenta stock
+/// y genera los movimientos, igual que una boleta del POS. Es el camino para el cliente
+/// empresa que no pasa por caja y paga a plazo.
+///
+/// El neto se calcula sumando 19% al precio de catálogo, no desglosándolo: acá el precio
+/// de lista se toma como valor neto. Por eso el total de una factura creada desde un
+/// pedido es 19% mayor que el total del pedido, que sí es IVA incluido.
+model FacturaVenta {
+  id          String        @id @default(cuid())
+  correlativo Int           @unique // interno FV-000001
+  /// Folio tributario del facturador electrónico. Vacío hasta que se emite en el SII.
+  folioSii    String?
+  /// Obligatorio: una factura necesita RUT y razón social, no sirve un cliente de paso
+  clienteId   String
+  cliente     SocioNegocio  @relation(fields: [clienteId], references: [id])
+  /// Vínculo opcional al pedido que la originó, o atado después
+  pedidoId    String?       @unique
+  pedido      PedidoCliente? @relation(fields: [pedidoId], references: [id])
+  localId     String
+  local       Local         @relation(fields: [localId], references: [id])
+  neto        Int
+  iva         Int // 19% del neto
+  total       Int
+  fechaEmision     DateTime
+  condicionPago    String? // CONTADO, 30D, 60D, 90D
+  fechaVencimiento DateTime?
+  estado      EstadoFactura @default(ABIERTA)
+  nota        String?
+  creadoPorId String
+  creadoPor   Usuario       @relation("FacturasVentaCreadas", fields: [creadoPorId], references: [id])
+  creadoEn    DateTime      @default(now())
+  pagadaEn    DateTime?
+  anuladaPorId String?
+  anuladaPor   Usuario?     @relation("FacturasVentaAnuladas", fields: [anuladaPorId], references: [id])
+  anuladaEn    DateTime?
+  motivoAnulacion String?
+
+  lineas      FacturaVentaLinea[]
+  movimientos MovimientoInventario[]
+
+  // Cuentas por cobrar: la vista de vencidas ordena por vencimiento dentro del estado
+  @@index([estado, fechaVencimiento])
+  @@index([localId, creadoEn])
+}
+
+model FacturaVentaLinea {
+  id             String       @id @default(cuid())
+  facturaId      String
+  factura        FacturaVenta @relation(fields: [facturaId], references: [id], onDelete: Cascade)
+  productoId     String
+  producto       Producto     @relation(fields: [productoId], references: [id])
+  cantidad       Int
+  /// Neto unitario congelado al emitir
+  precioUnitario Int
+  subtotal       Int
+  /// Costo congelado: el margen histórico no cambia si mañana sube el costo
+  costoUnitario  Int
+
+  @@index([facturaId])
 }
 
 model PedidoClienteLinea {
@@ -399,6 +506,7 @@ model SocioNegocio {
   facturasCompra FacturaCompra[]
   preciosCompra  PrecioCompraProveedor[]
   pedidos        PedidoCliente[]
+  facturasVenta  FacturaVenta[]
 
   @@unique([rut, tipo])
 }

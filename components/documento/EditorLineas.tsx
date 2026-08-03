@@ -2,12 +2,13 @@
 
 /**
  * Grilla de líneas estándar para documentos (estilo SAP B1):
- * Nro | Código (combobox) | Descripción | Stock | Cant. | Precio | Total | 🗑
+ * Nro | Código (combobox) | Descripción | Stock | [Destino] | Cant. | Precio | Total | 🗑
  * + "Añadir otro artículo ＋".
- * La usan Solicitud de compra, Orden de compra y Pedido de venta.
+ * La usan Solicitud de compra, Orden de compra, Pedido de venta y el
+ * documento de movimiento de inventario.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { formatCLP } from "@/lib/format";
 import { IconTrash } from "@/components/ui/icons";
 
@@ -152,6 +153,11 @@ export function EditorLineas({
   onChange,
   precioDe,
   stockDe,
+  etiquetaStock = "Stock",
+  stockDestinoDe,
+  etiquetaStockDestino = "Destino",
+  proyeccionDe,
+  avisoDe,
   etiquetaPrecio = "Precio",
   precioEditable = true,
 }: {
@@ -162,6 +168,14 @@ export function EditorLineas({
   precioDe: (p: ArticuloDoc) => { valor: number; etiqueta: string };
   /** stock a mostrar (null = ocultar columna) */
   stockDe?: ((productoId: string) => number) | null;
+  etiquetaStock?: string;
+  /** segunda columna de stock, ej. el local de destino en una transferencia */
+  stockDestinoDe?: ((productoId: string) => number) | null;
+  etiquetaStockDestino?: string;
+  /** stock resultante tras el movimiento; se muestra bajo el stock de origen */
+  proyeccionDe?: ((l: LineaEditor) => { valor: number; excede: boolean } | null) | null;
+  /** mensaje de validación por línea; se muestra como fila de aviso */
+  avisoDe?: ((l: LineaEditor) => string | null) | null;
   etiquetaPrecio?: string;
   precioEditable?: boolean;
 }) {
@@ -169,6 +183,8 @@ export function EditorLineas({
     id ? productos.find((p) => p.id === id) ?? null : null;
   const usados = new Set(lineas.map((l) => l.productoId).filter(Boolean) as string[]);
   const conStock = stockDe != null;
+  const conStockDestino = stockDestinoDe != null;
+  const nCols = 7 + (conStock ? 1 : 0) + (conStockDestino ? 1 : 0);
 
   const setLinea = (key: number, patch: Partial<LineaEditor>) =>
     onChange(lineas.map((l) => (l.key === key ? { ...l, ...patch } : l)));
@@ -184,7 +200,10 @@ export function EditorLineas({
               <th className="px-3 py-3 text-center">Nro.</th>
               <th className="px-3 py-3">Código</th>
               <th className="px-3 py-3">Descripción</th>
-              {conStock && <th className="px-3 py-3 text-center">Stock</th>}
+              {conStock && <th className="px-3 py-3 text-center">{etiquetaStock}</th>}
+              {conStockDestino && (
+                <th className="px-3 py-3 text-center">{etiquetaStockDestino}</th>
+              )}
               <th className="px-3 py-3 text-center">Cant.</th>
               <th className="px-3 py-3 text-right">{etiquetaPrecio}</th>
               <th className="px-3 py-3 text-right">Total</th>
@@ -195,8 +214,12 @@ export function EditorLineas({
             {lineas.map((l, idx) => {
               const p = productoDe(l.productoId);
               const stock = p && conStock ? stockDe!(p.id) : null;
+              const stockDestino = p && conStockDestino ? stockDestinoDe!(p.id) : null;
+              const proyeccion = p && proyeccionDe ? proyeccionDe(l) : null;
+              const aviso = p && avisoDe ? avisoDe(l) : null;
               return (
-                <tr key={l.key} className="border-b border-slate-100 align-middle last:border-0">
+                <Fragment key={l.key}>
+                <tr className={`align-middle ${aviso ? "" : "border-b border-slate-100 last:border-0"}`}>
                   <td className="px-3 py-2.5 text-center font-semibold text-slate-500">
                     {idx + 1}
                   </td>
@@ -227,14 +250,36 @@ export function EditorLineas({
                   {conStock && (
                     <td className="px-3 py-2.5 text-center">
                       {stock !== null ? (
-                        <span
-                          className={`inline-block min-w-9 rounded-lg border px-2 py-1.5 font-bold ${
-                            stock <= 0
-                              ? "border-fenix-600/30 bg-fenix-600/5 text-fenix-600"
-                              : "border-slate-200 bg-cloud/60 text-navy-950"
-                          }`}
-                        >
-                          {stock}
+                        <>
+                          <span
+                            className={`inline-block min-w-9 rounded-lg border px-2 py-1.5 font-bold ${
+                              stock <= 0
+                                ? "border-fenix-600/30 bg-fenix-600/5 text-fenix-600"
+                                : "border-slate-200 bg-cloud/60 text-navy-950"
+                            }`}
+                          >
+                            {stock}
+                          </span>
+                          {proyeccion && (
+                            <span
+                              className={`mt-1 block text-xs font-bold tabular-nums ${
+                                proyeccion.excede ? "text-fenix-600" : "text-slate-400"
+                              }`}
+                            >
+                              → {proyeccion.valor}
+                            </span>
+                          )}
+                        </>
+                      ) : (
+                        <span className="text-slate-300">—</span>
+                      )}
+                    </td>
+                  )}
+                  {conStockDestino && (
+                    <td className="px-3 py-2.5 text-center">
+                      {stockDestino !== null ? (
+                        <span className="inline-block min-w-9 rounded-lg border border-slate-200 bg-cloud/60 px-2 py-1.5 font-bold text-navy-950">
+                          {stockDestino}
                         </span>
                       ) : (
                         <span className="text-slate-300">—</span>
@@ -291,6 +336,16 @@ export function EditorLineas({
                     </button>
                   </td>
                 </tr>
+                {aviso && (
+                  <tr className="border-b border-slate-100 last:border-0">
+                    <td colSpan={nCols} className="bg-fenix-600/5 px-3 py-1.5">
+                      <p role="alert" className="text-xs font-bold text-fenix-600">
+                        ⚠️ Línea {idx + 1} · {aviso}
+                      </p>
+                    </td>
+                  </tr>
+                )}
+                </Fragment>
               );
             })}
           </tbody>

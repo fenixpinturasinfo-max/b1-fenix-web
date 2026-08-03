@@ -5,7 +5,10 @@ import { getSession } from "@/lib/auth/session";
 import { seccionesVisibles } from "@/lib/auth/permissions";
 import { agruparMenu, type ModuloId, type Seccion } from "@/lib/auth/secciones";
 import { logout } from "@/features/auth/actions";
+import { avisosDe } from "@/features/dashboard/avisos";
+import { COOKIE_AVISOS_LEIDOS, parseAvisosLeidos } from "@/features/dashboard/aviso";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
+import { CampanaAvisos } from "@/components/ui/CampanaAvisos";
 import { SidebarToggle } from "@/components/ui/SidebarToggle";
 import { DashNav, type DashNavItem } from "@/components/ui/DashNav";
 import {
@@ -69,11 +72,16 @@ export default async function DashboardLayout({
   const session = await getSession();
   if (!session) redirect("/login");
 
-  const [visibles, cookieStore] = await Promise.all([
+  const [visibles, cookieStore, avisos] = await Promise.all([
     seccionesVisibles(session.rol),
     cookies(),
+    // Corre en cada navegación, así que son solo `count()`. Ver features/dashboard/avisos.ts
+    avisosDe(session),
   ]);
   const tema = cookieStore.get("fenix-theme")?.value;
+  // Avisos silenciados. La campana los recalcula en el cliente, pero se leen acá para que
+  // el badge ya salga correcto del servidor y no parpadee al hidratar.
+  const avisosLeidos = parseAvisosLeidos(cookieStore.get(COOKIE_AVISOS_LEIDOS)?.value);
 
   return (
     <div id="dash-root" className={`bg-cloud ${tema === "dark" ? "dark" : ""}`}>
@@ -124,6 +132,7 @@ export default async function DashboardLayout({
             </div>
 
             <div className="flex items-center gap-3">
+              <CampanaAvisos avisos={avisos} leidosIniciales={avisosLeidos} />
               <ThemeToggle />
               <div className="flex items-center gap-2.5 border-l border-slate-200 pl-3">
                 <span className="flex h-9 w-9 items-center justify-center rounded-full bg-electric-600 text-sm font-bold text-white">

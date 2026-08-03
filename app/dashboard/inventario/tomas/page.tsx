@@ -4,6 +4,7 @@ import { esRolGlobal, puedeEscribir } from "@/lib/auth/permissions";
 import { getLocalesActivos } from "@/lib/cache";
 import { listaTomas, opcionesDeAlcance } from "@/features/tomas/queries";
 import { NuevaTomaModal } from "@/features/tomas/components/NuevaTomaModal";
+import { AnularTomaButton } from "@/features/tomas/components/AnularTomaButton";
 import { alcanceLabel, estadoToma } from "@/features/tomas/toma";
 import { formatCLP } from "@/lib/format";
 import { fmtFecha } from "@/lib/fechas";
@@ -12,13 +13,18 @@ export default async function TomasPage() {
   const { session, escribe } = await requireSeccionConNivel("inventario.toma");
   const esGlobal = esRolGlobal(session.rol);
 
-  const [tomas, locales, opciones] = await Promise.all([
+  const [tomas, locales, opciones, puedeAprobar] = await Promise.all([
     listaTomas({ esGlobal, localId: esGlobal ? null : session.localId }),
     esGlobal ? getLocalesActivos() : Promise.resolve([]),
     // Categorías y marcas son del catálogo, único para la cadena: sirven para cualquier
     // local. Solo las ubicaciones dependen de la sucursal, y vienen agrupadas por local.
     opcionesDeAlcance(esGlobal ? null : session.localId),
+    puedeEscribir(session.rol, "inventario.toma-aprobar"),
   ]);
+
+  // Anular una toma en conteo lo puede quien cuenta; una ya cerrada, solo quien aprueba
+  const puedeAnular = (estado: string) =>
+    estado === "ABIERTA" ? escribe : estado === "CONTADA" ? puedeAprobar : false;
 
   // Solo bloquea la toma abierta del propio local: la de otra sucursal no es asunto de acá
   const abierta = esGlobal ? undefined : tomas.find((t) => t.estado === "ABIERTA");
@@ -50,12 +56,30 @@ export default async function TomasPage() {
             {abierta.filtro && ` · ${abierta.filtro}`} · {abierta.contadas} de {abierta.total}{" "}
             contados
           </span>
-          <Link
-            href={`/dashboard/inventario/tomas/${abierta.id}/contar`}
-            className="bg-flame ml-auto h-11 rounded-xl px-5 font-bold leading-[44px] text-white transition hover:opacity-90"
-          >
-            Seguir contando
-          </Link>
+          {/* Una toma abierta bloquea abrir otra: si se abrió por error, acá está la salida */}
+          <div className="ml-auto flex items-center gap-2">
+            {escribe && (
+              <AnularTomaButton
+                tomaId={abierta.id}
+                folio={abierta.folio}
+                estado="ABIERTA"
+                contadas={abierta.contadas}
+                total={abierta.total}
+              />
+            )}
+            <a
+              href={`/dashboard/inventario/tomas/${abierta.id}/planilla`}
+              className="flex h-11 items-center rounded-xl border border-slate-300 px-4 text-sm font-semibold text-slate-600 transition hover:border-electric-500 hover:text-electric-600"
+            >
+              ⬇ Planilla
+            </a>
+            <Link
+              href={`/dashboard/inventario/tomas/${abierta.id}`}
+              className="bg-flame h-11 rounded-xl px-5 font-bold leading-[44px] text-white transition hover:opacity-90"
+            >
+              Continuar toma
+            </Link>
+          </div>
         </div>
       )}
 
@@ -114,17 +138,26 @@ export default async function TomasPage() {
                       {badge.label}
                     </span>
                   </td>
-                  <td className="px-4 py-2 text-right">
-                    <Link
-                      href={
-                        t.estado === "ABIERTA"
-                          ? `/dashboard/inventario/tomas/${t.id}/contar`
-                          : `/dashboard/inventario/tomas/${t.id}`
-                      }
-                      className="rounded-lg border border-slate-300 px-3 py-1 text-xs font-semibold text-slate-600 transition hover:border-electric-500 hover:text-electric-600"
-                    >
-                      {t.estado === "ABIERTA" ? "Contar" : "Ver"}
-                    </Link>
+                  <td className="px-4 py-2">
+                    <div className="flex items-center justify-end gap-2">
+                      {/* Siempre al detalle: ahí se elige entre planilla y uno-a-uno */}
+                      <Link
+                        href={`/dashboard/inventario/tomas/${t.id}`}
+                        className="rounded-lg border border-slate-300 px-3 py-1 text-xs font-semibold text-slate-600 transition hover:border-electric-500 hover:text-electric-600"
+                      >
+                        {t.estado === "ABIERTA" ? "Contar" : "Ver"}
+                      </Link>
+                      {puedeAnular(t.estado) && (
+                        <AnularTomaButton
+                          compacta
+                          tomaId={t.id}
+                          folio={t.folio}
+                          estado={t.estado as "ABIERTA" | "CONTADA"}
+                          contadas={t.contadas}
+                          total={t.total}
+                        />
+                      )}
+                    </div>
                   </td>
                 </tr>
               );
@@ -141,7 +174,7 @@ export default async function TomasPage() {
         </table>
       </div>
 
-      {!(await puedeEscribir(session.rol, "inventario.toma-aprobar")) && (
+      {!puedeAprobar && (
         <p className="text-sm text-slate-400">
           Puedes contar y cerrar la toma. El ajuste al stock lo aplica el encargado, después de
           revisar las diferencias.

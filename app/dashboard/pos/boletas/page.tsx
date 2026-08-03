@@ -33,6 +33,7 @@ export default async function BoletasPage() {
     items: v._count.detalle,
     total: v.total,
     anulada: v.estado === "ANULADA",
+    premium: v.premium,
   }));
 
   return (

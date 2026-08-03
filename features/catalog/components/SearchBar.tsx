@@ -1,11 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { products } from "../data/products";
+import type { Product } from "../types";
 import { formatCLP } from "@/lib/format";
 import { useCart } from "@/features/cart/store";
 
-export function SearchBar() {
+export function SearchBar({ products }: { products: Product[] }) {
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const add = useCart((s) => s.add);

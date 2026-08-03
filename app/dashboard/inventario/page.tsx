@@ -9,6 +9,7 @@ import {
   type ProductoStock,
 } from "@/features/inventory/components/StockTable";
 import { ProductForm } from "@/features/inventory/components/ProductForm";
+import { ImportProductos } from "@/features/inventory/components/ImportProductos";
 
 const ESTADOS: EstadoStock[] = ["TODOS", "SIN", "BAJO", "OK"];
 
@@ -83,7 +84,10 @@ export default async function InventarioPage({
           )}
         </div>
         {ajusta && (
-          <ProductForm categorias={categorias.map((c) => ({ id: c.id, nombre: c.nombre }))} />
+          <div className="flex flex-wrap gap-2">
+            <ImportProductos />
+            <ProductForm categorias={categorias.map((c) => ({ id: c.id, nombre: c.nombre }))} />
+          </div>
         )}
       </div>
 

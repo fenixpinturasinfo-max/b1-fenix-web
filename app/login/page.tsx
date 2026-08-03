@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Image from "next/image";
 import { LoginForm } from "@/features/auth/components/LoginForm";
+import { APP_VERSION_LABEL } from "@/lib/version";
 
 export const metadata: Metadata = {
   title: "Ingresar | Pinturas Fenix",
@@ -57,13 +58,20 @@ export default function LoginPage() {
         </a>
 
         <div className="relative">
-          <h1 className="max-w-md text-4xl font-black leading-tight text-white">
-            Sistema de inventario y punto de venta
+          <h1 className="max-w-lg text-4xl font-black leading-tight text-white">
+            Sistema de gestión de compras, ventas e inventario
           </h1>
+          {/* Un ítem por cada palabra del título, en el mismo orden: compras, ventas,
+              inventario. Prometer compras arriba y no mencionarlas acá deja la duda de si
+              el módulo existe. */}
           <ul className="mt-6 space-y-3 text-white/85">
             <li className="flex items-center gap-3">
+              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/10">🚚</span>
+              Órdenes de compra y recepción de proveedores
+            </li>
+            <li className="flex items-center gap-3">
               <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/10">🧾</span>
-              Ventas y arqueo de caja por local
+              Ventas, facturas y arqueo de caja por local
             </li>
             <li className="flex items-center gap-3">
               <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/10">📦</span>
@@ -114,6 +122,16 @@ export default function LoginPage() {
               ← Volver a la tienda
             </a>
             <span>¿Sin acceso? Habla con tu administrador</span>
+          </div>
+
+          {/* Versión como chip legible, no como texto al borde de lo invisible: quien la
+              busca es alguien reportando un problema, y tener que forzar la vista para
+              leerla es peor que el ruido de un borde gris. Va acá y no en el panel de marca
+              porque ese panel no existe en móvil. */}
+          <div className="mt-5 flex justify-center">
+            <span className="rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-semibold text-slate-500">
+              Fenix Sistema {APP_VERSION_LABEL}
+            </span>
           </div>
         </div>
       </section>

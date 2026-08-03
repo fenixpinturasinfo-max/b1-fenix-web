@@ -15,6 +15,7 @@ import { SectionDivider } from "@/components/ui/SectionDivider";
 import { prisma } from "@/lib/prisma";
 import { toLocalPublico, type LocalPublico } from "@/features/stores/lib";
 import { locations } from "@/features/stores/data/locations";
+import { getProductosPublicos } from "@/features/catalog/data/getProductosPublicos";
 
 // Refresca los datos de locales cada 5 minutos
 export const revalidate = 300;
@@ -41,7 +42,7 @@ async function getLocales(): Promise<LocalPublico[]> {
 }
 
 export default async function Home() {
-  const locales = await getLocales();
+  const [locales, productos] = await Promise.all([getLocales(), getProductosPublicos()]);
   const comunasDot = locales.map((l) => l.comuna).join(" · ");
   const comunasY =
     locales.length > 1
@@ -53,13 +54,13 @@ export default async function Home() {
 
   return (
     <>
-      <Header comunas={comunasY} />
+      <Header comunas={comunasY} products={productos} />
       <main className="flex-1">
         <Hero comunas={comunasDot} />
         <TrustStrip nLocales={locales.length} comunas={comunasY} />
-        <FeaturedProducts />
+        <FeaturedProducts products={productos} />
         <Categories />
-        <Advisory />
+        <Advisory products={productos} />
         <Gallery />
         <Testimonials />
         <Brands />

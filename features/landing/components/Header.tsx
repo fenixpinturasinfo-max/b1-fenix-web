@@ -5,6 +5,7 @@ import Image from "next/image";
 import { Container } from "@/components/ui/Container";
 import { CartButton } from "@/features/cart/components/CartButton";
 import { SearchBar } from "@/features/catalog/components/SearchBar";
+import type { Product } from "@/features/catalog/types";
 
 const links = [
   { href: "#categorias", label: "Categorías" },
@@ -14,7 +15,13 @@ const links = [
   { href: "#locales", label: "Locales" },
 ];
 
-export function Header({ comunas = "San Bernardo y Buin" }: { comunas?: string }) {
+export function Header({
+  comunas = "San Bernardo y Buin",
+  products,
+}: {
+  comunas?: string;
+  products: Product[];
+}) {
   const [menuOpen, setMenuOpen] = useState(false);
 
   return (
@@ -51,7 +58,7 @@ export function Header({ comunas = "San Bernardo y Buin" }: { comunas?: string }
         </nav>
 
         <div className="hidden md:block">
-          <SearchBar />
+          <SearchBar products={products} />
         </div>
 
         <div className="flex items-center gap-2">
@@ -89,7 +96,7 @@ export function Header({ comunas = "San Bernardo y Buin" }: { comunas?: string }
         <nav className="border-t border-slate-200 bg-white lg:hidden" aria-label="Navegación móvil">
           <Container className="flex flex-col py-2">
             <div className="px-2 py-2 md:hidden">
-              <SearchBar />
+              <SearchBar products={products} />
             </div>
             {links.map((l) => (
               <a

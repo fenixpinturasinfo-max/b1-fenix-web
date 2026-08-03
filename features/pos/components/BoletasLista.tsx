@@ -15,6 +15,7 @@ export interface BoletaRow {
   items: number;
   total: number;
   anulada: boolean;
+  premium: boolean;
 }
 
 const medioLabel: Record<string, string> = {
@@ -93,6 +94,11 @@ export function BoletasLista({ rows }: { rows: BoletaRow[] }) {
                 {r.anulada && (
                   <span className="ml-2 rounded-full bg-fenix-600/10 px-2 py-0.5 text-xs font-bold text-fenix-600">
                     Anulada
+                  </span>
+                )}
+                {r.premium && (
+                  <span className="ml-2 rounded-full bg-[#f59e0b]/15 px-2 py-0.5 text-xs font-bold text-[#b45309]">
+                    ⭐ Premium
                   </span>
                 )}
               </td>

@@ -1,4 +1,3 @@
-import { products } from "@/features/catalog/data/products";
 import type { Product } from "@/features/catalog/types";
 
 export type Goal = "pintar" | "retoque" | "pulir";
@@ -28,10 +27,9 @@ export const sizesByGoal: Partial<Record<Goal, SizeOption[]>> = {
   ],
 };
 
-const bySku = (sku: string): Product | undefined => products.find((p) => p.sku === sku);
-
 /** Reglas de recomendación (mock → luego configurable desde el admin). */
-export function recommendKit(goal: Goal, size?: string): Product[] {
+export function recommendKit(products: Product[], goal: Goal, size?: string): Product[] {
+  const bySku = (sku: string): Product | undefined => products.find((p) => p.sku === sku);
   const skus: string[] =
     goal === "pulir"
       ? ["MEN-400-1L", "MEN-2400-1L", "MEN-3000-1L"]

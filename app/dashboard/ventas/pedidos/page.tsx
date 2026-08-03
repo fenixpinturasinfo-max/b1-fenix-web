@@ -1,4 +1,4 @@
-import { esRolGlobal } from "@/lib/auth/permissions";
+import { esRolGlobal, puedeEscribir } from "@/lib/auth/permissions";
 import { requireSeccion } from "@/lib/auth/guards";
 import { prisma } from "@/lib/prisma";
 import { getLocalesActivos } from "@/lib/cache";
@@ -15,7 +15,14 @@ const fmt = new Intl.DateTimeFormat("es-CL", {
   timeZone: "America/Santiago",
 });
 
-const FILTROS: FiltroPedido[] = ["TODOS", "PENDIENTE", "PREPARADO", "ENTREGADO", "ANULADO"];
+const FILTROS: FiltroPedido[] = [
+  "TODOS",
+  "PENDIENTE",
+  "PREPARADO",
+  "ENTREGADO",
+  "FACTURADO",
+  "ANULADO",
+];
 
 export default async function PedidosPage({
   searchParams,
@@ -28,10 +35,14 @@ export default async function PedidosPage({
     ? (estado as FiltroPedido)
     : "TODOS";
 
-  const [pedidos, clientes, productos, locales] = await Promise.all([
+  const [pedidos, clientes, productos, locales, puedeFacturar] = await Promise.all([
     prisma.pedidoCliente.findMany({
       where: esRolGlobal(session.rol) ? {} : { localId: session.localId! },
-      include: { local: true, lineas: { include: { producto: true } } },
+      include: {
+        local: true,
+        factura: { select: { id: true, correlativo: true } },
+        lineas: { include: { producto: true } },
+      },
       orderBy: { creadoEn: "desc" },
       take: 300,
     }),
@@ -41,6 +52,7 @@ export default async function PedidosPage({
     }),
     prisma.producto.findMany({ where: { activo: true }, orderBy: { nombre: "asc" } }),
     getLocalesActivos(),
+    puedeEscribir(session.rol, "ventas.facturas"),
   ]);
 
   const stockRows = await prisma.stockLocal.findMany({
@@ -61,6 +73,12 @@ export default async function PedidosPage({
     total: p.total,
     estado: p.estado,
     puedeGestionar: esRolGlobal(session.rol) || p.localId === session.localId,
+    puedeFacturar:
+      puedeFacturar &&
+      p.factura === null &&
+      (esRolGlobal(session.rol) || p.localId === session.localId),
+    facturaFolio: p.factura ? `FV-${String(p.factura.correlativo).padStart(6, "0")}` : null,
+    facturaId: p.factura?.id ?? null,
     lineas: p.lineas.map((l) => ({
       id: l.id,
       producto: l.producto.nombre,

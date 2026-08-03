@@ -9,6 +9,8 @@ export type MotivoAjuste =
   | "ERROR_CONTEO"
   | "VENCIDO"
   | "OTRO";
+export type OrigenLinea = "ALCANCE" | "AGREGADA_MANUAL" | "AGREGADA_IMPORT";
+export type OrigenConteo = "MOVIL" | "PLANILLA";
 
 export const ALCANCES: { valor: AlcanceToma; label: string; ayuda: string }[] = [
   {
@@ -58,8 +60,32 @@ export const estadoToma: Record<EstadoToma, { label: string; cls: string }> = {
   ANULADA: { label: "Anulada", cls: "bg-slate-100 text-slate-400" },
 };
 
+/** Etiqueta del origen de la línea. `ALCANCE` no se muestra: es el caso normal. */
+export const origenLineaLabel: Record<OrigenLinea, string | null> = {
+  ALCANCE: null,
+  AGREGADA_MANUAL: "agregada",
+  AGREGADA_IMPORT: "agregada en planilla",
+};
+
+export const origenConteoLabel: Record<OrigenConteo, string> = {
+  MOVIL: "Contado en móvil",
+  PLANILLA: "Importado de planilla",
+};
+
 /** Cuántos productos toma "los de mayor valor" */
 export const TOP_ALTO_VALOR = 30;
+
+/**
+ * Días de antigüedad del conteo sobre los que conviene avisar al revisar.
+ *
+ * La corrección por movimientos posteriores funciona igual, pero cada día que pasa entre
+ * el conteo y la revisión son más movimientos que hay que sumar de vuelta, y más chance
+ * de que uno esté mal registrado.
+ */
+export const DIAS_CONTEO_ANTIGUO = 7;
+
+/** Hora que se asume cuando en la planilla solo viene la fecha del conteo. */
+export const HORA_CONTEO_POR_DEFECTO = 9;
 
 /**
  * Sobre esta diferencia en unidades conviene recontar antes de aplicar.

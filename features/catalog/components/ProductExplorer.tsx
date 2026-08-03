@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { categories, products } from "../data/products";
+import { categories } from "../data/products";
 import type { CategoryId, Product } from "../types";
 import { ProductCard } from "./ProductCard";
 
@@ -52,10 +52,12 @@ function pasa(p: Product, f: Filtros, omitir?: keyof Filtros): boolean {
 /* ── Panel de facetas (compartido desktop / bottom-sheet móvil) ── */
 
 function FacetPanel({
+  products,
   f,
   setF,
   onAplicado,
 }: {
+  products: Product[];
   f: Filtros;
   setF: (next: Filtros) => void;
   onAplicado?: () => void;
@@ -190,7 +192,7 @@ function FacetPanel({
 
 /* ── Explorador con facetas estilo marketplace ── */
 
-export function ProductExplorer() {
+export function ProductExplorer({ products }: { products: Product[] }) {
   const [f, setF] = useState<Filtros>(sinFiltros);
   const [limit, setLimit] = useState(PAGE_SIZE);
   const [panelMovil, setPanelMovil] = useState(false);
@@ -242,7 +244,7 @@ export function ProductExplorer() {
     <div className="lg:grid lg:grid-cols-[220px_1fr] lg:gap-8">
       {/* Sidebar de facetas (desktop) */}
       <aside className="hidden lg:block" aria-label="Filtros del catálogo">
-        <FacetPanel f={f} setF={aplicar} />
+        <FacetPanel products={products} f={f} setF={aplicar} />
       </aside>
 
       <div>
@@ -338,7 +340,7 @@ export function ProductExplorer() {
                 ✕
               </button>
             </div>
-            <FacetPanel f={f} setF={aplicar} />
+            <FacetPanel products={products} f={f} setF={aplicar} />
             <button
               type="button"
               onClick={() => setPanelMovil(false)}

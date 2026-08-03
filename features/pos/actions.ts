@@ -299,6 +299,9 @@ export async function registrarVenta(
 
     const cajaId = String(formData.get("cajaId") ?? "");
     const medioPago = String(formData.get("medioPago") ?? "") as Medio;
+    // Marca comercial: no entra en ningún cálculo, así que no hay nada que validar
+    // más allá de su presencia. El total lo sigue definiendo la lista de precios.
+    const premium = formData.get("premium") === "on";
     let lineas: LineaVenta[];
     try {
       lineas = JSON.parse(String(formData.get("lineas") ?? "[]"));
@@ -369,6 +372,7 @@ export async function registrarVenta(
           medioPago,
           subtotal,
           total: subtotal,
+          premium,
           detalle: {
             create: lineas.map((l) => {
               const p = porId.get(l.productoId)!;

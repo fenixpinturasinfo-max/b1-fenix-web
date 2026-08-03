@@ -74,6 +74,13 @@ export default async function BoletaPage({
             Boleta de venta {venta.estado === "ANULADA" ? "· ANULADA" : ""}
           </p>
           <p className="font-mono text-3xl font-black text-navy-950">{folio}</p>
+          {/* Sin color de fondo: en impresión térmica un fondo naranja sale como una
+              mancha gris que tapa el texto. Borde y negrita sí se imprimen bien. */}
+          {venta.premium && (
+            <p className="mx-auto mt-2 w-fit rounded-full border border-[#b45309] px-3 py-0.5 text-xs font-black uppercase tracking-wider text-[#b45309] print:border-black print:text-black">
+              ★ Venta Premium
+            </p>
+          )}
           <p className="mt-1 text-xs text-slate-500">{fmt.format(venta.creadoEn)}</p>
           <p className="text-xs text-slate-500">Atendido por {venta.usuario.nombre}</p>
         </div>

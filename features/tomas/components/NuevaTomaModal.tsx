@@ -36,8 +36,9 @@ export function NuevaTomaModal({
   const [state, action, pending] = useActionState<ActionState, FormData>(
     async (prev, fd) => {
       const res = await abrirToma(prev, fd);
-      // Abrir una toma es para contarla: se va derecho al conteo
-      if (res.tomaId) router.push(`/dashboard/inventario/tomas/${res.tomaId}/contar`);
+      // Al detalle, no directo al contador uno-a-uno: hay dos formas de contar y con 40
+      // productos la planilla es la rápida. Empujar al contador escondía esa opción.
+      if (res.tomaId) router.push(`/dashboard/inventario/tomas/${res.tomaId}`);
       return res;
     },
     {},
@@ -218,7 +219,7 @@ export function NuevaTomaModal({
                 disabled={pending}
                 className="bg-flame h-11 flex-1 rounded-xl font-bold text-white transition hover:opacity-90 disabled:opacity-50"
               >
-                {pending ? "Abriendo…" : "Abrir y contar"}
+                {pending ? "Abriendo…" : "Abrir toma"}
               </button>
             </div>
           </form>

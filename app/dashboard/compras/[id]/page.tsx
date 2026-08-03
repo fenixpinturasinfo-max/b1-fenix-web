@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { formatCLP } from "@/lib/format";
 import { RecepcionForm } from "@/features/purchases/components/RecepcionForm";
 import { FacturaForm } from "@/features/purchases/components/FacturaForm";
-import { anularOC } from "@/features/purchases/actions";
+import { AnularOCButton } from "@/features/purchases/components/AnularOCButton";
 
 const fmt = new Intl.DateTimeFormat("es-CL", {
   dateStyle: "short",
@@ -84,7 +84,8 @@ export default async function OCDetallePage({
       sku: l.producto.sku,
       pendiente: l.cantidad - l.cantidadRecibida,
     }));
-  const sinRecepciones = oc.lineas.every((l) => l.cantidadRecibida === 0);
+  const puedeAnular =
+    oc.estado !== "ANULADA" && oc.estado !== "CERRADA" && !oc.factura && pendientes.length > 0;
   const puedeRecepcionar =
     (oc.estado === "ENVIADA" || oc.estado === "RECIBIDA_PARCIAL") && pendientes.length > 0;
 
@@ -125,16 +126,11 @@ export default async function OCDetallePage({
           </p>
           {oc.nota && <p className="text-sm text-slate-400">Nota: {oc.nota}</p>}
         </div>
-        {sinRecepciones && oc.estado !== "ANULADA" && (
-          <form action={anularOC}>
-            <input type="hidden" name="id" value={oc.id} />
-            <button
-              type="submit"
-              className="h-10 rounded-xl border border-slate-300 px-4 text-sm font-semibold text-slate-600 transition hover:border-fenix-500 hover:text-fenix-600"
-            >
-              Anular OC
-            </button>
-          </form>
+        {puedeAnular && (
+          <AnularOCButton
+            ocId={oc.id}
+            pendientes={pendientes.map((p) => ({ sku: p.sku, nombre: p.nombre, pendiente: p.pendiente }))}
+          />
         )}
       </div>
 

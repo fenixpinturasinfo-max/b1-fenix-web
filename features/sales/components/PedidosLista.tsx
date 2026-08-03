@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { formatCLP } from "@/lib/format";
 import { cambiarEstadoPedido } from "../actions";
 import { Paginacion } from "@/components/ui/Paginacion";
@@ -23,8 +24,13 @@ export interface PedidoRow {
   local: string;
   nota: string | null;
   total: number;
-  estado: "PENDIENTE" | "PREPARADO" | "ENTREGADO" | "ANULADO";
+  estado: "PENDIENTE" | "PREPARADO" | "ENTREGADO" | "FACTURADO" | "ANULADO";
   puedeGestionar: boolean;
+  /** Solo con permiso de ventas.facturas: el vendedor de mostrador no factura a crédito */
+  puedeFacturar: boolean;
+  /** Folio de la factura que lo consumió, si ya se facturó */
+  facturaFolio: string | null;
+  facturaId: string | null;
   lineas: PedidoLineaRow[];
 }
 
@@ -32,11 +38,18 @@ const badges: Record<PedidoRow["estado"], { label: string; cls: string }> = {
   PENDIENTE: { label: "Pendiente", cls: "bg-[#f59e0b]/15 text-[#b45309]" },
   PREPARADO: { label: "Preparado", cls: "bg-electric-50 text-electric-600" },
   ENTREGADO: { label: "Entregado", cls: "bg-lime-400/15 text-[#4d7c0f]" },
+  FACTURADO: { label: "Facturado", cls: "bg-lime-400/15 text-[#4d7c0f]" },
   ANULADO: { label: "Anulado", cls: "bg-fenix-600/10 text-fenix-600" },
 };
 
 const PAGINA = 10;
-export type FiltroPedido = "TODOS" | "PENDIENTE" | "PREPARADO" | "ENTREGADO" | "ANULADO";
+export type FiltroPedido =
+  | "TODOS"
+  | "PENDIENTE"
+  | "PREPARADO"
+  | "ENTREGADO"
+  | "FACTURADO"
+  | "ANULADO";
 type Filtro = FiltroPedido;
 
 const pasa = (r: PedidoRow, f: Filtro) => (f === "TODOS" ? true : r.estado === f);
@@ -102,6 +115,7 @@ export function PedidosLista({
     PENDIENTE: "Pendientes",
     PREPARADO: "Preparados",
     ENTREGADO: "Entregados",
+    FACTURADO: "Facturados",
     ANULADO: "Anulados",
   };
 
@@ -230,19 +244,38 @@ function FilaPedido({
           </span>
         </td>
         <td className="px-4 py-2 text-right">
-          {r.puedeGestionar && (
-            <div className="flex justify-end gap-1.5">
-              {r.estado === "PENDIENTE" && (
-                <BotonEstado id={r.id} accion="preparar" label="▸ Preparado" primario />
-              )}
-              {r.estado === "PREPARADO" && (
-                <BotonEstado id={r.id} accion="entregar" label="✓ Entregado" primario />
-              )}
-              {(r.estado === "PENDIENTE" || r.estado === "PREPARADO") && (
-                <BotonEstado id={r.id} accion="anular" label="Anular" />
-              )}
-            </div>
-          )}
+          <div className="flex flex-wrap justify-end gap-1.5">
+            {/* Ya facturado: el stock salió con la factura, no hay nada que gestionar */}
+            {r.facturaId ? (
+              <Link
+                href={`/dashboard/ventas/facturas/${r.facturaId}`}
+                className="rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-semibold text-slate-600 transition hover:border-electric-500 hover:text-electric-600"
+              >
+                Ver {r.facturaFolio}
+              </Link>
+            ) : (
+              <>
+                {r.puedeGestionar && r.estado === "PENDIENTE" && (
+                  <BotonEstado id={r.id} accion="preparar" label="▸ Preparado" primario />
+                )}
+                {r.puedeGestionar && r.estado === "PREPARADO" && (
+                  <BotonEstado id={r.id} accion="entregar" label="✓ Entregado" primario />
+                )}
+                {/* Copiar a factura, estilo SAP B1: arrastra las líneas del pedido */}
+                {r.puedeFacturar && r.estado !== "ANULADO" && (
+                  <Link
+                    href={`/dashboard/ventas/facturas/nueva?pedido=${r.id}`}
+                    className="rounded-lg border border-electric-600 px-2.5 py-1 text-xs font-bold text-electric-600 transition hover:bg-electric-600 hover:text-white"
+                  >
+                    Crear factura
+                  </Link>
+                )}
+                {r.puedeGestionar && (r.estado === "PENDIENTE" || r.estado === "PREPARADO") && (
+                  <BotonEstado id={r.id} accion="anular" label="Anular" />
+                )}
+              </>
+            )}
+          </div>
         </td>
       </tr>
       {abierto && (

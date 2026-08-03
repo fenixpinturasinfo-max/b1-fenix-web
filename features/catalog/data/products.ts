@@ -9,7 +9,12 @@ export const categories: Category[] = [
   { id: "kits", nombre: "Kits", descripcion: "Kits listos para trabajar" },
 ];
 
-/** Mock inicial — precios de oferta de lanzamiento (IG @pinturas.fenix). Reemplazar por Prisma. */
+/**
+ * Mock de respaldo — precios de oferta de lanzamiento (IG @pinturas.fenix).
+ * La landing ya lee productos en vivo desde Prisma vía
+ * `getProductosPublicos()`; este array solo se usa como fallback si la BD
+ * no responde o aún no tiene productos (y como semilla en prisma/seed.ts).
+ */
 export const products: Product[] = [
   {
     sku: "SIK-LHS-1L",

@@ -2,8 +2,15 @@
 
 import { useActionState, useState } from "react";
 import { aplicarToma, guardarMotivo, pedirRecuento, type ActionState } from "../actions";
-import { MOTIVOS, motivoLabel, UMBRAL_MOTIVO, UMBRAL_RECUENTO } from "../toma";
+import {
+  MOTIVOS,
+  motivoLabel,
+  origenLineaLabel,
+  UMBRAL_MOTIVO,
+  UMBRAL_RECUENTO,
+} from "../toma";
 import type { LineaDetalle, TomaDetalle } from "../queries";
+import { AnularTomaButton } from "./AnularTomaButton";
 import { Modal } from "@/components/ui/Modal";
 import { ChipsFiltro } from "@/components/ui/lista";
 import { formatCLP } from "@/lib/format";
@@ -46,6 +53,14 @@ export function RevisionToma({
     (l) => !l.motivo && Math.abs(l.valorDiferencia) >= UMBRAL_MOTIVO,
   );
 
+  // Faltantes y sobrantes por separado, no solo el neto: −$232.000 de faltante con
+  // +$50.000 de sobrante se ven igual que −$182.000 parejos, y no son lo mismo. Un
+  // faltante apunta a merma o robo; un sobrante, a un error de recepción o de digitación.
+  const faltantes = conDif.filter((l) => (l.diferencia ?? 0) < 0);
+  const sobrantes = conDif.filter((l) => (l.diferencia ?? 0) > 0);
+  const valorFaltantes = faltantes.reduce((n, l) => n + l.valorDiferencia, 0);
+  const valorSobrantes = sobrantes.reduce((n, l) => n + l.valorDiferencia, 0);
+
   const visibles = filtro === "DIF" ? conDif : filtro === "OK" ? cuadraron : sinContar;
 
   return (
@@ -61,6 +76,12 @@ export function RevisionToma({
           label="Impacto en el inventario"
           valor={impacto === 0 ? "Sin impacto" : formatCLP(impacto)}
           tono={impacto < 0 ? "malo" : impacto > 0 ? "ok" : "neutro"}
+          // El neto solo: el desglose evita leer un faltante grande como algo menor
+          detalle={
+            faltantes.length > 0 && sobrantes.length > 0
+              ? `${formatCLP(valorFaltantes)} faltante · +${formatCLP(valorSobrantes)} sobrante`
+              : undefined
+          }
         />
       </div>
 
@@ -125,6 +146,13 @@ export function RevisionToma({
             </span>
           )}
           <div className="ml-auto flex gap-2">
+            <AnularTomaButton
+              tomaId={toma.id}
+              folio={toma.folio}
+              estado="CONTADA"
+              contadas={contadas.length}
+              total={toma.lineas.length}
+            />
             <form action={pedirRecuento}>
               <input type="hidden" name="tomaId" value={toma.id} />
               <button
@@ -153,26 +181,81 @@ export function RevisionToma({
 
       {confirmar && (
         <Modal
-          titulo="Aplicar la toma al stock"
-          descripcion={`${conDif.length} ${conDif.length === 1 ? "producto quedará ajustado" : "productos quedarán ajustados"} en ${toma.localNombre}.`}
+          titulo="¿Crear los ajustes de inventario?"
+          descripcion={`Vas a corregir el stock de ${conDif.length} ${conDif.length === 1 ? "producto" : "productos"} en ${toma.localNombre}.`}
           onClose={() => setConfirmar(false)}
         >
           <div className="space-y-3 text-sm">
-            <p className="text-slate-600">
-              El inventario cambia en{" "}
-              <b className={impacto < 0 ? "text-fenix-600" : "text-[#4d7c0f]"}>
-                {formatCLP(impacto)}
-              </b>
-              . Queda un movimiento de ajuste por producto, con tu nombre.
-            </p>
-            {sinMotivo.length > 0 && (
-              <p className="rounded-xl bg-[#f59e0b]/10 px-3 py-2 text-[#b45309]">
-                {sinMotivo.length}{" "}
-                {sinMotivo.length === 1 ? "diferencia importante no tiene" : "diferencias importantes no tienen"}{" "}
-                motivo. Sin motivo, el mes que viene nadie va a saber qué pasó.
+            {/* Faltantes y sobrantes separados: el neto solo esconde la mitad del problema */}
+            <dl className="divide-y divide-slate-200 rounded-xl border border-slate-200">
+              {faltantes.length > 0 && (
+                <div className="flex items-center justify-between gap-4 px-3 py-2">
+                  <dt className="text-slate-600">
+                    ▼ Faltantes · {faltantes.length}{" "}
+                    {faltantes.length === 1 ? "producto" : "productos"}
+                  </dt>
+                  <dd className="font-bold tabular-nums text-fenix-600">
+                    {formatCLP(valorFaltantes)}
+                  </dd>
+                </div>
+              )}
+              {sobrantes.length > 0 && (
+                <div className="flex items-center justify-between gap-4 px-3 py-2">
+                  <dt className="text-slate-600">
+                    ▲ Sobrantes · {sobrantes.length}{" "}
+                    {sobrantes.length === 1 ? "producto" : "productos"}
+                  </dt>
+                  <dd className="font-bold tabular-nums text-[#4d7c0f]">
+                    +{formatCLP(valorSobrantes)}
+                  </dd>
+                </div>
+              )}
+              <div className="flex items-center justify-between gap-4 px-3 py-2">
+                <dt className="font-bold text-navy-950">Efecto neto en el inventario</dt>
+                <dd
+                  className={`text-base font-black tabular-nums ${
+                    impacto < 0 ? "text-fenix-600" : impacto > 0 ? "text-[#4d7c0f]" : "text-slate-500"
+                  }`}
+                >
+                  {formatCLP(impacto)}
+                </dd>
+              </div>
+            </dl>
+
+            {cuadraron.length > 0 && (
+              <p className="text-slate-500">
+                Los {cuadraron.length} que cuadraron no generan movimiento: su stock ya está
+                correcto.
               </p>
             )}
-            <p className="text-xs text-slate-400">
+
+            {sinMotivo.length > 0 && (
+              <div className="rounded-xl bg-[#f59e0b]/10 px-3 py-2 text-[#b45309]">
+                <p>
+                  {sinMotivo.length}{" "}
+                  {sinMotivo.length === 1
+                    ? "diferencia importante no tiene"
+                    : "diferencias importantes no tienen"}{" "}
+                  motivo. Sin motivo, el mes que viene nadie va a saber qué pasó.
+                </p>
+                {/* Cuáles, no solo cuántas: "3 sin motivo" obliga a cerrar y buscarlas */}
+                <ul className="mt-1.5 space-y-0.5 text-xs">
+                  {sinMotivo.slice(0, 4).map((l) => (
+                    <li key={l.id}>
+                      · {l.nombre} ({formatCLP(l.valorDiferencia)})
+                    </li>
+                  ))}
+                  {sinMotivo.length > 4 && <li>· y {sinMotivo.length - 4} más</li>}
+                </ul>
+              </div>
+            )}
+
+            {/* Lo que el encargado necesita saber antes de confirmar, no después */}
+            <p className="rounded-xl bg-cloud/60 px-3 py-2 text-xs text-slate-500">
+              Esto <b className="text-navy-950">no se puede deshacer</b> desde la toma: queda un
+              movimiento de ajuste por producto, con tu nombre y la fecha. Para revertirlo habría
+              que registrar movimientos de ajuste a mano.
+              <br />
               Las ventas ocurridas después del conteo ya están descontadas: no aparecen como
               faltante.
             </p>
@@ -185,14 +268,14 @@ export function RevisionToma({
               onClick={() => setConfirmar(false)}
               className="h-11 flex-1 rounded-xl border border-slate-300 text-sm font-semibold text-slate-600"
             >
-              Cancelar
+              No, volver a revisar
             </button>
             <button
               type="submit"
               disabled={pending}
               className="bg-flame h-11 flex-1 rounded-xl font-bold text-white transition hover:opacity-90 disabled:opacity-50"
             >
-              {pending ? "Aplicando…" : "Aplicar"}
+              {pending ? "Creando ajustes…" : `Sí, ajustar ${conDif.length}`}
             </button>
           </form>
         </Modal>
@@ -210,6 +293,13 @@ function Fila({ linea, editable }: { linea: LineaDetalle; editable: boolean }) {
         <span className="block text-xs text-slate-400">
           {linea.marca} · {linea.sku}
           {linea.ubicacion && ` · ${linea.ubicacion}`}
+          {/* El alcance no incluía este producto: apareció durante el conteo, y un faltante
+              acá significa algo distinto que uno en el pasillo que se pidió contar. */}
+          {origenLineaLabel[linea.origen] && (
+            <span className="ml-1 rounded-full bg-electric-50 px-1.5 py-0.5 text-[10px] font-bold text-electric-600">
+              {origenLineaLabel[linea.origen]}
+            </span>
+          )}
         </span>
       </td>
       <td className="px-4 py-2 text-right tabular-nums text-slate-600">
@@ -241,6 +331,12 @@ function Fila({ linea, editable }: { linea: LineaDetalle; editable: boolean }) {
                 {linea.movPosteriores} desde las {fmtHora(linea.contadoEn!)}
               </span>
             )}
+            {/* Quién contó y por qué vía: ante una diferencia grande es lo primero que se
+                pregunta, y una cifra que pasó por una planilla merece otra mirada. */}
+            <span className="block text-[11px] text-slate-400">
+              {linea.origenConteo === "PLANILLA" ? "📄 planilla" : "📱 móvil"}
+              {linea.contadoPor && ` · ${linea.contadoPor}`}
+            </span>
           </>
         )}
       </td>
@@ -288,10 +384,13 @@ function Kpi({
   label,
   valor,
   tono,
+  detalle,
 }: {
   label: string;
   valor: string;
   tono: "ok" | "atencion" | "malo" | "neutro";
+  /** Línea secundaria, para desglosar un número que de otro modo esconde su composición */
+  detalle?: string;
 }) {
   const color =
     tono === "ok"
@@ -305,6 +404,7 @@ function Kpi({
     <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
       <p className="text-xs text-slate-500">{label}</p>
       <p className={`text-xl font-black tabular-nums ${color}`}>{valor}</p>
+      {detalle && <p className="mt-0.5 text-xs tabular-nums text-slate-400">{detalle}</p>}
     </div>
   );
 }

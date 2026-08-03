@@ -5,10 +5,11 @@ import { goals, recommendKit, sizesByGoal, type Goal } from "../kits";
 import { useCart } from "@/features/cart/store";
 import { formatCLP } from "@/lib/format";
 import { buildAdvisoryUrl } from "@/lib/whatsapp";
+import type { Product } from "@/features/catalog/types";
 
 type Step = "goal" | "size" | "result";
 
-export function KitWizard() {
+export function KitWizard({ products }: { products: Product[] }) {
   const [goal, setGoal] = useState<Goal | null>(null);
   const [size, setSize] = useState<string | null>(null);
   const [step, setStep] = useState<Step>("goal");
@@ -20,7 +21,7 @@ export function KitWizard() {
     setStep(sizesByGoal[g] ? "size" : "result");
   };
 
-  const kit = goal ? recommendKit(goal, size ?? undefined) : [];
+  const kit = goal ? recommendKit(products, goal, size ?? undefined) : [];
   const total = kit.reduce((n, p) => n + p.precioVenta, 0);
 
   const reset = () => {

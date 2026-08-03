@@ -40,6 +40,7 @@ export function PosVenta({ cajaId, productos }: { cajaId: string; productos: Pos
   const [lineas, setLineas] = useState<Linea[]>([]);
   const [medioPago, setMedioPago] = useState("EFECTIVO");
   const [pagaCon, setPagaCon] = useState("");
+  const [premium, setPremium] = useState(false);
   const [flash, setFlash] = useState<string | null>(null);
   /** Venta recién cobrada: se conserva aparte del carro, que ya se vació */
   const [cerrada, setCerrada] = useState<VentaCerrada | null>(null);
@@ -71,11 +72,15 @@ export function PosVenta({ cajaId, productos }: { cajaId: string; productos: Pos
           pagoCon: medio === "EFECTIVO" ? pago : null,
           vuelto: medio === "EFECTIVO" && pago !== null ? pago - cobrado : null,
           medioPago: medio,
+          premium: fd.get("premium") === "on",
         });
         setModalCierre(true);
         setMostrarTira(true);
         setLineas([]);
         setPagaCon("");
+        // Se apaga para la venta siguiente: dejarlo encendido marcaría Premium a todo el
+        // que venga después, y es el tipo de error que nadie nota hasta ver el reporte.
+        setPremium(false);
         return res;
       } finally {
         cobrando.current = false;
@@ -457,6 +462,32 @@ export function PosVenta({ cajaId, productos }: { cajaId: string; productos: Pos
                 <option value="TRANSFERENCIA">Transferencia</option>
               </select>
             </div>
+
+            {/* Marca Premium.
+                Va antes de cobrar y no al final, junto al total, para que quede claro que
+                no lo modifica: si estuviera pegado al botón de cobrar, el cajero podría
+                esperar que el precio cambie al activarlo. El texto lo dice explícito. */}
+            <label
+              className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition ${
+                premium
+                  ? "border-[#f59e0b] bg-[#f59e0b]/10"
+                  : "border-slate-300 bg-white hover:border-[#f59e0b]/60"
+              }`}
+            >
+              <input
+                type="checkbox"
+                name="premium"
+                checked={premium}
+                onChange={(e) => setPremium(e.target.checked)}
+                className="mt-0.5 h-4 w-4 accent-[#b45309]"
+              />
+              <span className="min-w-0">
+                <span className="block text-sm font-bold text-navy-950">⭐ Venta Premium</span>
+                <span className="block text-xs text-slate-500">
+                  Queda marcada en la boleta y en los reportes. No cambia el total.
+                </span>
+              </span>
+            </label>
 
             {/* Vuelto (solo efectivo) */}
             {medioPago === "EFECTIVO" && total > 0 && (

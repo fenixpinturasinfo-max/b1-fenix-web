@@ -1,5 +1,10 @@
 import { prisma } from "@/lib/prisma";
-import { objetivoDeStock, type EstadoToma } from "./toma";
+import {
+  objetivoDeStock,
+  type EstadoToma,
+  type OrigenConteo,
+  type OrigenLinea,
+} from "./toma";
 
 export interface TomaResumen {
   id: string;
@@ -84,6 +89,9 @@ export interface LineaDetalle {
   esperado: number;
   contado: number | null;
   contadoEn: Date | null;
+  contadoPor: string | null;
+  origen: OrigenLinea;
+  origenConteo: OrigenConteo | null;
   saltada: boolean;
   motivo: string | null;
   precioCosto: number;
@@ -116,8 +124,13 @@ export interface TomaDetalle {
   nota: string | null;
   creadoPor: string;
   creadoEn: Date;
+  /** Día real del conteo: de acá sale el cálculo de diferencias (no la fecha de digitación) */
+  fechaConteo: Date | null;
   aplicadaPor: string | null;
   aplicadaEn: Date | null;
+  anuladaPor: string | null;
+  anuladaEn: Date | null;
+  motivoAnulacion: string | null;
   lineas: LineaDetalle[];
 }
 
@@ -138,8 +151,10 @@ export async function tomaDetalle(
       local: { select: { nombre: true } },
       creadoPor: { select: { nombre: true } },
       aplicadaPor: { select: { nombre: true } },
+      anuladaPor: { select: { nombre: true } },
       lineas: {
         include: {
+          contadoPor: { select: { nombre: true } },
           producto: {
             select: { id: true, nombre: true, marca: true, sku: true, precioCosto: true },
           },
@@ -199,6 +214,9 @@ export async function tomaDetalle(
         esperado: l.esperado,
         contado: l.contado,
         contadoEn: l.contadoEn,
+        contadoPor: l.contadoPor?.nombre ?? null,
+        origen: l.origen as OrigenLinea,
+        origenConteo: (l.origenConteo as OrigenConteo | null) ?? null,
         saltada: l.saltada,
         motivo: l.motivo,
         precioCosto: l.producto.precioCosto,
@@ -237,8 +255,12 @@ export async function tomaDetalle(
     nota: t.nota,
     creadoPor: t.creadoPor.nombre,
     creadoEn: t.creadoEn,
+    fechaConteo: t.fechaConteo,
     aplicadaPor: t.aplicadaPor?.nombre ?? null,
     aplicadaEn: t.aplicadaEn,
+    anuladaPor: t.anuladaPor?.nombre ?? null,
+    anuladaEn: t.anuladaEn,
+    motivoAnulacion: t.motivoAnulacion,
     lineas: expuestas,
   };
 }

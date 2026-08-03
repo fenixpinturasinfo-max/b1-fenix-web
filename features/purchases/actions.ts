@@ -124,18 +124,41 @@ export async function crearOC(
   redirect(`/dashboard/compras/${oc.id}`);
 }
 
-/** Anula una OC sin recepciones. */
-export async function anularOC(formData: FormData) {
+/**
+ * Anula una OC. Si quedan líneas sin recibir por completo (ej. pediste 10,
+ * llegaron 9), anular cancela ese saldo pendiente: el stock ya recibido no
+ * se toca, pero la OC deja de aceptar más recepciones contra ella.
+ * No se puede anular si ya tiene factura registrada (esa es la vía de cierre).
+ */
+export async function anularOC(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
   const session = await requireCompras("compras.ordenes");
   const id = String(formData.get("id") ?? "");
-  const oc = await prisma.ordenCompra.findUnique({ where: { id }, include: { lineas: true } });
-  if (!oc || oc.estado === "ANULADA") return;
-  if (!esRolGlobal(session.rol) && session.localId !== oc.localDestinoId) return;
-  const recibido = oc.lineas.some((l) => l.cantidadRecibida > 0);
-  if (recibido) return;
-  await prisma.ordenCompra.update({ where: { id }, data: { estado: "ANULADA" } });
+  const motivo = String(formData.get("motivo") ?? "").trim();
+
+  const oc = await prisma.ordenCompra.findUnique({
+    where: { id },
+    include: { lineas: true, factura: true },
+  });
+  if (!oc) return { error: "OC no encontrada." };
+  if (oc.estado === "ANULADA") return { error: "Esta OC ya está anulada." };
+  if (oc.estado === "CERRADA") return { error: "Esta OC ya está cerrada." };
+  if (!esRolGlobal(session.rol) && session.localId !== oc.localDestinoId) {
+    return { error: "No puedes anular una OC de otro local." };
+  }
+  if (oc.factura) {
+    return { error: "Esta OC ya tiene factura registrada; no se puede anular." };
+  }
+
+  const nota = motivo ? (oc.nota ? `${oc.nota}\n[Anulada] ${motivo}` : `[Anulada] ${motivo}`) : oc.nota;
+
+  await prisma.ordenCompra.update({ where: { id }, data: { estado: "ANULADA", nota } });
   revalidatePath("/dashboard/compras");
+  revalidatePath("/dashboard/compras/partidas");
   revalidatePath(`/dashboard/compras/${id}`);
+  return { ok: "OC anulada." };
 }
 
 const IVA = 0.19;
