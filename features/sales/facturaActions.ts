@@ -6,6 +6,8 @@ import { esRolGlobal } from "@/lib/auth/permissions";
 import { exigirEscritura } from "@/lib/auth/guards";
 import { instanteSantiago, partesSantiago } from "@/lib/fechas";
 import { esCondicionValida, totalesFactura, vencimientoDesde } from "./factura";
+import { resolverDescuento } from "@/features/descuentos/resolver";
+import { montoDesdePorcentaje } from "@/lib/descuento";
 
 export interface ActionState {
   error?: string;
@@ -93,7 +95,13 @@ export async function emitirFactura(
 
     const cliente = await prisma.socioNegocio.findFirst({
       where: { id: clienteId, tipo: "CLIENTE", activo: true },
-      select: { id: true, razonSocial: true, rut: true, condicionPago: true },
+      select: {
+        id: true,
+        razonSocial: true,
+        rut: true,
+        condicionPago: true,
+        descuentoPorcentaje: true,
+      },
     });
     if (!cliente) return { error: "El cliente no existe o está inactivo." };
 
@@ -148,7 +156,34 @@ export async function emitirFactura(
       precioUnitario: porId.get(l.productoId)!.precioVenta,
       costoUnitario: porId.get(l.productoId)!.precioCosto,
     }));
-    const { neto, iva, total } = totalesFactura(conPrecio);
+    // ── Descuento sobre el neto ──
+    // Mismo trato que en el POS. El neto sin rebaja se calcula primero porque es la base
+    // contra la que se mide el tramo libre del vendedor; recién con el descuento ya
+    // resuelto se arman los totales definitivos y su IVA. El pactado de la ficha del
+    // cliente entra como piso ya autorizado: no se suma con el manual, manda el mayor.
+    const netoBruto = totalesFactura(conPrecio, 0).neto;
+    const descuentoCliente = montoDesdePorcentaje(netoBruto, cliente.descuentoPorcentaje);
+    const descuentoPedido = Math.round(Number(formData.get("descuento") ?? 0));
+    const resuelto = await resolverDescuento({
+      base: netoBruto,
+      pedido: descuentoPedido,
+      vale: String(formData.get("valeDescuento") ?? ""),
+      operador: { id: session.sub, rol: session.rol },
+      descuentoCliente,
+    });
+    if (!resuelto.ok) return { error: resuelto.error };
+
+    const descuentoAutorizadoPorId = resuelto.valor.autorizadorId;
+    const descuentoMotivo =
+      resuelto.valor.descuento > 0
+        ? String(formData.get("descuentoMotivo") ?? "").trim().slice(0, 120) ||
+          // Sin motivo escrito y sin autorizador, la rebaja viene pactada en la ficha.
+          (descuentoAutorizadoPorId === null
+            ? `Pactado cliente ${cliente.descuentoPorcentaje}%`
+            : null)
+        : null;
+
+    const { neto, iva, total, descuento } = totalesFactura(conPrecio, resuelto.valor.descuento);
     const fechaVencimiento = vencimientoDesde(fechaEmision, condicionPago);
 
     const creada = await prisma.$transaction(async (tx) => {
@@ -163,6 +198,9 @@ export async function emitirFactura(
           pedidoId,
           localId,
           neto,
+          descuento,
+          descuentoAutorizadoPorId,
+          descuentoMotivo,
           iva,
           total,
           fechaEmision,
@@ -352,6 +390,8 @@ export async function anularFactura(_prev: ActionState, formData: FormData): Pro
         correlativo: true,
         pedidoId: true,
         lineas: { select: { productoId: true, cantidad: true } },
+        // Cobro de cuenta abierta: esta factura no movió stock al emitirse
+        retirosCuenta: { select: { id: true } },
       },
     });
     if (!factura) return { error: "Factura no encontrada." };
@@ -384,24 +424,34 @@ export async function anularFactura(_prev: ActionState, formData: FormData): Pro
       });
       if (anulada.count !== 1) throw new Error("YA_ANULADA");
 
-      // Devolver lo que salió, con su movimiento espejo
-      for (const l of factura.lineas) {
-        await tx.stockLocal.upsert({
-          where: { productoId_localId: { productoId: l.productoId, localId: factura.localId } },
-          update: { cantidad: { increment: l.cantidad } },
-          create: { productoId: l.productoId, localId: factura.localId, cantidad: l.cantidad },
+      if (factura.retirosCuenta.length > 0) {
+        // Cobro de cuenta abierta: la factura nunca movió stock (salió con cada retiro),
+        // así que devolverlo acá lo inflaría. Anular el cobro reabre los retiros: la
+        // mercadería sigue donde el cliente y la deuda vuelve a la cuenta.
+        await tx.retiroCuenta.updateMany({
+          where: { facturaVentaId: factura.id },
+          data: { estado: "ABIERTO", facturaVentaId: null, cobradoEn: null },
         });
-        await tx.movimientoInventario.create({
-          data: {
-            tipo: "ENTRADA",
-            productoId: l.productoId,
-            localId: factura.localId,
-            cantidad: l.cantidad,
-            usuarioId: session.sub,
-            facturaVentaId: factura.id,
-            nota: `Anulación ${folio} · ${motivo}`,
-          },
-        });
+      } else {
+        // Devolver lo que salió, con su movimiento espejo
+        for (const l of factura.lineas) {
+          await tx.stockLocal.upsert({
+            where: { productoId_localId: { productoId: l.productoId, localId: factura.localId } },
+            update: { cantidad: { increment: l.cantidad } },
+            create: { productoId: l.productoId, localId: factura.localId, cantidad: l.cantidad },
+          });
+          await tx.movimientoInventario.create({
+            data: {
+              tipo: "ENTRADA",
+              productoId: l.productoId,
+              localId: factura.localId,
+              cantidad: l.cantidad,
+              usuarioId: session.sub,
+              facturaVentaId: factura.id,
+              nota: `Anulación ${folio} · ${motivo}`,
+            },
+          });
+        }
       }
 
       // El pedido vuelve a estar disponible para facturar o cobrar por el POS
@@ -416,10 +466,16 @@ export async function anularFactura(_prev: ActionState, formData: FormData): Pro
     revalidatePath("/dashboard/ventas/facturas");
     revalidatePath(`/dashboard/ventas/facturas/${facturaId}`);
     revalidatePath("/dashboard/ventas/pedidos");
+    revalidatePath("/dashboard/ventas/cuenta");
     revalidatePath("/dashboard/inventario");
     revalidatePath("/dashboard/inventario/movimientos");
     revalidatePath("/");
-    return { ok: `${folio} anulada. El stock volvió al inventario.` };
+    return {
+      ok:
+        factura.retirosCuenta.length > 0
+          ? `${folio} anulada. Los retiros que cobraba volvieron a la cuenta abierta del cliente (el stock no se toca: sigue donde el cliente).`
+          : `${folio} anulada. El stock volvió al inventario.`,
+    };
   } catch (e) {
     if (e instanceof Error && e.message === "YA_ANULADA") {
       return { error: "Esta factura ya fue anulada." };

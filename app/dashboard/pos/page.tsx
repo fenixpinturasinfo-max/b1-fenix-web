@@ -1,4 +1,4 @@
-import { esRolGlobal } from "@/lib/auth/permissions";
+import { esRolGlobal, puedeEscribir } from "@/lib/auth/permissions";
 import { requireSeccion } from "@/lib/auth/guards";
 import { prisma } from "@/lib/prisma";
 import { AbrirCajaForm, CerrarCajaForm } from "@/features/pos/components/CajaForms";
@@ -6,9 +6,14 @@ import { PosVenta, type PosProducto } from "@/features/pos/components/PosVenta";
 import { MovimientosCaja } from "@/features/pos/components/MovimientosCaja";
 import { saldoMovimientos } from "@/features/pos/caja";
 import { formatCLP } from "@/lib/format";
+import { SECCION_DESCUENTO } from "@/lib/descuento";
+import { topeDe } from "@/features/descuentos/topes";
 
 export default async function PosPage() {
   const session = await requireSeccion("ventas.pos");
+  // Si el cajero ya puede descontar, el modal no le pide credenciales de supervisor.
+  const puedeDescontar = await puedeEscribir(session.rol, SECCION_DESCUENTO);
+  const tope = puedeDescontar ? null : await topeDe(session.rol);
 
   const locales = await prisma.local.findMany({
     where: { activo: true },
@@ -80,7 +85,13 @@ export default async function PosPage() {
         </a>
       </div>
 
-      <PosVenta cajaId={caja.id} productos={posProductos} />
+      <PosVenta
+        cajaId={caja.id}
+        localId={caja.localId}
+        productos={posProductos}
+        puedeDescontar={puedeDescontar}
+        tope={tope}
+      />
 
       <div className="grid gap-6 lg:grid-cols-2">
         {/* Últimas ventas del turno */}

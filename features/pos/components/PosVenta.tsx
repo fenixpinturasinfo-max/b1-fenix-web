@@ -1,10 +1,20 @@
 "use client";
 
 import { useActionState, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { registrarVenta, type ActionState } from "../actions";
+import {
+  buscarClientePos,
+  registrarVenta,
+  type ActionState,
+  type ClientePos,
+} from "../actions";
 import { CierreVenta, TiraUltimaVenta, type VentaCerrada } from "./CierreVenta";
 import { formatCLP } from "@/lib/format";
 import { IconTrash } from "@/components/ui/icons";
+import {
+  DescuentoBoton,
+  type DescuentoAplicado,
+} from "@/features/descuentos/components/DescuentoBoton";
+import { montoDesdePorcentaje, type TopeLibre } from "@/lib/descuento";
 
 export interface PosProducto {
   id: string;
@@ -34,13 +44,34 @@ function CanIcon() {
   );
 }
 
-export function PosVenta({ cajaId, productos }: { cajaId: string; productos: PosProducto[] }) {
+export function PosVenta({
+  cajaId,
+  localId,
+  productos,
+  puedeDescontar,
+  tope,
+}: {
+  cajaId: string;
+  /** Local de la caja: viaja con la solicitud de aprobación por correo. */
+  localId: string;
+  productos: PosProducto[];
+  /** Si el cajero tiene el permiso, el modal no le pide credenciales de supervisor. */
+  puedeDescontar: boolean;
+  /** Tramo que el perfil descuenta sin autorización. */
+  tope: TopeLibre | null;
+}) {
   const [query, setQuery] = useState("");
   const [cat, setCat] = useState("todas");
   const [lineas, setLineas] = useState<Linea[]>([]);
   const [medioPago, setMedioPago] = useState("EFECTIVO");
   const [pagaCon, setPagaCon] = useState("");
   const [premium, setPremium] = useState(false);
+  const [descuento, setDescuento] = useState<DescuentoAplicado | null>(null);
+  /** Cliente con ficha, cuando el cajero ingresó su RUT. Su descuento se aplica solo. */
+  const [cliente, setCliente] = useState<ClientePos | null>(null);
+  const [rutInput, setRutInput] = useState("");
+  const [buscandoRut, setBuscandoRut] = useState(false);
+  const [avisoCliente, setAvisoCliente] = useState<string | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
   /** Venta recién cobrada: se conserva aparte del carro, que ya se vació */
   const [cerrada, setCerrada] = useState<VentaCerrada | null>(null);
@@ -78,6 +109,14 @@ export function PosVenta({ cajaId, productos }: { cajaId: string; productos: Pos
         setMostrarTira(true);
         setLineas([]);
         setPagaCon("");
+        // El vale ya se gastó y dura 5 minutos: arrastrarlo a la venta siguiente sería
+        // regalar un descuento que nadie autorizó para ese cliente.
+        setDescuento(null);
+        // El cliente también es de esta venta: el siguiente en la fila es otra persona,
+        // y dejar el RUT puesto le regalaría el descuento del anterior.
+        setCliente(null);
+        setRutInput("");
+        setAvisoCliente(null);
         // Se apaga para la venta siguiente: dejarlo encendido marcaría Premium a todo el
         // que venga después, y es el tipo de error que nadie nota hasta ver el reporte.
         setPremium(false);
@@ -179,8 +218,42 @@ export function PosVenta({ cajaId, productos }: { cajaId: string; productos: Pos
     );
   };
 
-  const total = lineas.reduce((n, l) => n + l.cantidad * l.producto.precioVenta, 0);
+  const subtotal = lineas.reduce((n, l) => n + l.cantidad * l.producto.precioVenta, 0);
+  // Descuento pactado del cliente: es un porcentaje, así que se recalcula solo cada vez
+  // que el carro cambia. El servidor lo vuelve a calcular desde la ficha al cobrar.
+  const descuentoClienteMonto = cliente
+    ? montoDesdePorcentaje(subtotal, cliente.descuentoPorcentaje)
+    : 0;
+  // No se suman: manda el mayor entre el pactado y el manual autorizado. Se recorta
+  // contra el subtotal por si el carro encogió después de autorizar. El vale sigue
+  // firmado por el monto original —el servidor lo verifica así— y recién después el
+  // servidor aplica este mismo recorte al guardar.
+  const descuentoMonto = Math.min(
+    Math.max(descuento?.monto ?? 0, descuentoClienteMonto),
+    subtotal,
+  );
+  const total = subtotal - descuentoMonto;
   const nItems = lineas.reduce((n, l) => n + l.cantidad, 0);
+
+  /** Busca la ficha por RUT. Enter en el campo o el botón llegan acá. */
+  const buscarCliente = async () => {
+    const rut = rutInput.trim();
+    if (!rut || buscandoRut) return;
+    setBuscandoRut(true);
+    setAvisoCliente(null);
+    try {
+      const res = await buscarClientePos(rut);
+      if (res.cliente) {
+        setCliente(res.cliente);
+        setRutInput("");
+      } else {
+        setCliente(null);
+        setAvisoCliente(res.aviso ?? res.error ?? "No se pudo buscar el cliente.");
+      }
+    } finally {
+      setBuscandoRut(false);
+    }
+  };
 
   // Vuelto (solo efectivo, cálculo en pantalla)
   const pagaConNum = pagaCon === "" ? null : Math.trunc(Number(pagaCon));
@@ -420,6 +493,99 @@ export function PosVenta({ cajaId, productos }: { cajaId: string; productos: Pos
         )}
 
         <div className="mt-4 border-t border-slate-200 pt-4">
+          {/* Cliente con ficha: con el RUT puesto, su descuento pactado se aplica solo */}
+          {cliente ? (
+            <div className="mb-3 flex items-start justify-between gap-2 rounded-xl border border-electric-500/40 bg-electric-50 px-3 py-2">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-bold text-navy-950">{cliente.nombre}</p>
+                <p className="text-[11px] text-slate-500">
+                  <span className="font-mono">{cliente.rut}</span>
+                  {cliente.descuentoPorcentaje > 0
+                    ? ` · ${cliente.descuentoPorcentaje}% de descuento pactado`
+                    : " · sin descuento pactado"}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setCliente(null);
+                  setAvisoCliente(null);
+                }}
+                className="shrink-0 rounded-lg px-2 py-1 text-xs font-bold text-slate-500 transition hover:bg-white hover:text-fenix-600"
+              >
+                Quitar
+              </button>
+            </div>
+          ) : (
+            <div className="mb-3">
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  inputMode="text"
+                  placeholder="RUT del cliente (opcional)"
+                  aria-label="RUT del cliente"
+                  value={rutInput}
+                  onChange={(e) => {
+                    setRutInput(e.target.value);
+                    if (avisoCliente) setAvisoCliente(null);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      // Dentro del panel pero fuera del form de cobro: aun así, Enter en
+                      // un input suelto no debe disparar nada más que la búsqueda.
+                      e.preventDefault();
+                      void buscarCliente();
+                    }
+                  }}
+                  className="h-10 min-w-0 flex-1 rounded-xl border border-slate-300 bg-white px-3 text-sm text-navy-950 outline-none transition focus:border-electric-500"
+                />
+                <button
+                  type="button"
+                  onClick={() => void buscarCliente()}
+                  disabled={buscandoRut || !rutInput.trim()}
+                  className="h-10 shrink-0 rounded-xl border border-slate-300 px-3 text-sm font-bold text-slate-600 transition hover:border-electric-500 hover:text-electric-600 disabled:opacity-40"
+                >
+                  {buscandoRut ? "Buscando…" : "Buscar"}
+                </button>
+              </div>
+              {avisoCliente && (
+                <p className="mt-1 text-xs font-semibold text-[#b45309]">{avisoCliente}</p>
+              )}
+            </div>
+          )}
+
+          {descuentoMonto > 0 && (
+            <div className="mb-2 flex items-center justify-between text-sm">
+              <span className="text-slate-500">Subtotal</span>
+              <span className="tabular-nums text-slate-500">{formatCLP(subtotal)}</span>
+            </div>
+          )}
+
+          {/* El pactado del cliente solo se dibuja cuando es el que manda: si el manual
+              autorizado lo supera, la tarjeta del DescuentoBoton ya cuenta la historia. */}
+          {descuentoClienteMonto > 0 && descuentoClienteMonto >= (descuento?.monto ?? 0) && (
+            <div className="mb-2 flex items-center justify-between text-sm">
+              <span className="text-[#b45309]">
+                Descuento cliente ({cliente!.descuentoPorcentaje}%)
+              </span>
+              <span className="tabular-nums font-semibold text-[#b45309]">
+                −{formatCLP(descuentoClienteMonto)}
+              </span>
+            </div>
+          )}
+
+          {/* Va fuera del <form> de cobro: el modal trae su propio formulario y anidarlos
+              no es HTML válido. */}
+          <DescuentoBoton
+            base={subtotal}
+            puedeDescontar={puedeDescontar}
+            tope={tope}
+            descuentoCliente={descuentoClienteMonto}
+            correo={{ contexto: "POS", localId, clienteId: cliente?.id ?? null }}
+            descuento={descuento}
+            onCambio={setDescuento}
+          />
+
           <div className="mb-4 flex items-center justify-between text-xl">
             <span className="font-semibold text-slate-600">Total</span>
             <span className="font-black tabular-nums text-navy-950">{formatCLP(total)}</span>
@@ -440,11 +606,21 @@ export function PosVenta({ cajaId, productos }: { cajaId: string; productos: Pos
             className="space-y-3"
           >
             <input type="hidden" name="cajaId" value={cajaId} />
+            {cliente && <input type="hidden" name="clienteId" value={cliente.id} />}
             <input
               type="hidden"
               name="lineas"
               value={JSON.stringify(lineas.map((l) => ({ productoId: l.producto.id, cantidad: l.cantidad })))}
             />
+            {descuento && (
+              <>
+                {/* El monto va sin recortar: es el que firma el vale y el que el servidor
+                    verifica. El recorte contra el subtotal lo hace el servidor después. */}
+                <input type="hidden" name="descuento" value={descuento.monto} />
+                <input type="hidden" name="valeDescuento" value={descuento.vale} />
+                <input type="hidden" name="descuentoMotivo" value={descuento.motivo} />
+              </>
+            )}
             <div>
               <label htmlFor="medioPago" className="mb-1 block text-sm font-semibold text-slate-700">
                 Medio de pago

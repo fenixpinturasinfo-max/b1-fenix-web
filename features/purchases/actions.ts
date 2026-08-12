@@ -624,103 +624,130 @@ export async function recepcionarOC(
       }
     }
 
-    const correlativoEntrada = await prisma.$transaction(async (tx) => {
-      const maxE = await tx.entradaCompra.aggregate({ _max: { correlativo: true } });
-      const entrada = await tx.entradaCompra.create({
-        data: {
-          correlativo: (maxE._max.correlativo ?? 0) + 1,
-          ordenCompraId: oc.id,
-          proveedorId: oc.proveedorId,
-          localId: oc.localDestinoId,
-          numeroGuia,
-          recibidoPorId: session.sub,
-        },
-      });
+    // El estado final se calcula acá, con lo que ya sabemos, y no re-consultando dentro
+    // de la transacción: una consulta menos contra Neon.
+    const recibidoPorLinea = new Map(efectivas.map((r) => [r.lineaId, r.cantidad]));
+    const completa = oc.lineas.every(
+      (l) => l.cantidadRecibida + (recibidoPorLinea.get(l.id) ?? 0) >= l.cantidad,
+    );
 
-      for (const r of efectivas) {
-        const linea = oc.lineas.find((l) => l.id === r.lineaId)!;
+    const correlativoEntrada = await prisma.$transaction(
+      async (tx) => {
+        const maxE = await tx.entradaCompra.aggregate({ _max: { correlativo: true } });
+        const entrada = await tx.entradaCompra.create({
+          data: {
+            correlativo: (maxE._max.correlativo ?? 0) + 1,
+            ordenCompraId: oc.id,
+            proveedorId: oc.proveedorId,
+            localId: oc.localDestinoId,
+            numeroGuia,
+            recibidoPorId: session.sub,
+          },
+        });
 
         // ── CPP: stock total (todos los locales) ANTES de esta recepción ──
-        const agg = await tx.stockLocal.aggregate({
-          where: { productoId: linea.productoId },
+        // Un solo groupBy para todas las líneas, en vez de un aggregate por línea:
+        // con Neon cada viaje cuesta ~200 ms y la transacción tiene tope de tiempo.
+        const productoIds = efectivas.map(
+          (r) => oc.lineas.find((l) => l.id === r.lineaId)!.productoId,
+        );
+        const stocks = await tx.stockLocal.groupBy({
+          by: ["productoId"],
+          where: { productoId: { in: productoIds } },
           _sum: { cantidad: true },
         });
-        const stockTotal = Math.max(agg._sum.cantidad ?? 0, 0);
-        const costoActual = linea.producto.precioCosto;
-        const nuevoCosto =
-          stockTotal <= 0 || costoActual <= 0
-            ? linea.costoUnitario
-            : Math.round(
-                (stockTotal * costoActual + r.cantidad * linea.costoUnitario) /
-                  (stockTotal + r.cantidad),
-              );
+        const stockTotalDe = new Map(
+          stocks.map((s) => [s.productoId, Math.max(s._sum.cantidad ?? 0, 0)]),
+        );
 
-        await tx.entradaCompraLinea.create({
-          data: {
-            entradaId: entrada.id,
-            productoId: linea.productoId,
-            cantidad: r.cantidad,
-            costoUnitario: linea.costoUnitario,
-          },
+        // Las inserciones puras van en lote: dos viajes, no dos por línea.
+        await tx.entradaCompraLinea.createMany({
+          data: efectivas.map((r) => {
+            const linea = oc.lineas.find((l) => l.id === r.lineaId)!;
+            return {
+              entradaId: entrada.id,
+              productoId: linea.productoId,
+              cantidad: r.cantidad,
+              costoUnitario: linea.costoUnitario,
+            };
+          }),
         });
-        await tx.ordenCompraLinea.update({
-          where: { id: linea.id },
-          data: { cantidadRecibida: { increment: r.cantidad } },
+        await tx.movimientoInventario.createMany({
+          data: efectivas.map((r) => {
+            const linea = oc.lineas.find((l) => l.id === r.lineaId)!;
+            return {
+              tipo: "ENTRADA" as const,
+              productoId: linea.productoId,
+              localId: oc.localDestinoId,
+              cantidad: r.cantidad,
+              usuarioId: session.sub,
+              nota: `OC-${String(oc.correlativo).padStart(6, "0")}${numeroGuia ? ` · Guía ${numeroGuia}` : ""}`,
+            };
+          }),
         });
-        await tx.stockLocal.upsert({
-          where: {
-            productoId_localId: { productoId: linea.productoId, localId: oc.localDestinoId },
-          },
-          update: { cantidad: { increment: r.cantidad } },
-          create: { productoId: linea.productoId, localId: oc.localDestinoId, cantidad: r.cantidad },
-        });
-        await tx.movimientoInventario.create({
-          data: {
-            tipo: "ENTRADA",
-            productoId: linea.productoId,
-            localId: oc.localDestinoId,
-            cantidad: r.cantidad,
-            usuarioId: session.sub,
-            nota: `OC-${String(oc.correlativo).padStart(6, "0")}${numeroGuia ? ` · Guía ${numeroGuia}` : ""}`,
-          },
-        });
-        await tx.producto.update({
-          where: { id: linea.productoId },
-          data: { precioCosto: nuevoCosto },
-        });
-        // Lista de precios de compra: último precio pactado con este proveedor
-        await tx.precioCompraProveedor.upsert({
-          where: {
-            proveedorId_productoId: {
+
+        for (const r of efectivas) {
+          const linea = oc.lineas.find((l) => l.id === r.lineaId)!;
+
+          const stockTotal = stockTotalDe.get(linea.productoId) ?? 0;
+          const costoActual = linea.producto.precioCosto;
+          const nuevoCosto =
+            stockTotal <= 0 || costoActual <= 0
+              ? linea.costoUnitario
+              : Math.round(
+                  (stockTotal * costoActual + r.cantidad * linea.costoUnitario) /
+                    (stockTotal + r.cantidad),
+                );
+
+          await tx.ordenCompraLinea.update({
+            where: { id: linea.id },
+            data: { cantidadRecibida: { increment: r.cantidad } },
+          });
+          await tx.stockLocal.upsert({
+            where: {
+              productoId_localId: { productoId: linea.productoId, localId: oc.localDestinoId },
+            },
+            update: { cantidad: { increment: r.cantidad } },
+            create: { productoId: linea.productoId, localId: oc.localDestinoId, cantidad: r.cantidad },
+          });
+          await tx.producto.update({
+            where: { id: linea.productoId },
+            data: { precioCosto: nuevoCosto },
+          });
+          // Lista de precios de compra: último precio pactado con este proveedor
+          await tx.precioCompraProveedor.upsert({
+            where: {
+              proveedorId_productoId: {
+                proveedorId: oc.proveedorId,
+                productoId: linea.productoId,
+              },
+            },
+            update: {
+              precio: linea.costoUnitario,
+              origen: `EC-${String(entrada.correlativo).padStart(6, "0")}`,
+            },
+            create: {
               proveedorId: oc.proveedorId,
               productoId: linea.productoId,
+              precio: linea.costoUnitario,
+              origen: `EC-${String(entrada.correlativo).padStart(6, "0")}`,
             },
-          },
-          update: {
-            precio: linea.costoUnitario,
-            origen: `EC-${String(entrada.correlativo).padStart(6, "0")}`,
-          },
-          create: {
-            proveedorId: oc.proveedorId,
-            productoId: linea.productoId,
-            precio: linea.costoUnitario,
-            origen: `EC-${String(entrada.correlativo).padStart(6, "0")}`,
-          },
+          });
+        }
+
+        await tx.ordenCompra.update({
+          where: { id: oc.id },
+          data: { estado: completa ? "RECIBIDA" : "RECIBIDA_PARCIAL" },
         });
-      }
 
-      // Estado de la OC según lo recibido
-      const lineasActuales = await tx.ordenCompraLinea.findMany({
-        where: { ordenCompraId: oc.id },
-      });
-      const completa = lineasActuales.every((l) => l.cantidadRecibida >= l.cantidad);
-      await tx.ordenCompra.update({
-        where: { id: oc.id },
-        data: { estado: completa ? "RECIBIDA" : "RECIBIDA_PARCIAL" },
-      });
-
-      return entrada.correlativo;
-    });
+        return entrada.correlativo;
+      },
+      // Con Neon cada viaje son ~200 ms y una OC grande hace varios por línea: el tope
+      // por defecto (5 s) abortaba recepciones normales a mitad de camino. Nada quedaba
+      // a medias —la transacción revierte— pero el mensaje era un "Error al recepcionar"
+      // sin explicación.
+      { timeout: 30_000, maxWait: 10_000 },
+    );
 
     revalidatePath("/dashboard/compras");
     revalidatePath(`/dashboard/compras/${ocId}`);
@@ -729,7 +756,10 @@ export async function recepcionarOC(
     return {
       ok: `Entrada EC-${String(correlativoEntrada).padStart(6, "0")} registrada. Stock y costo promedio actualizados.`,
     };
-  } catch {
-    return { error: "Error al recepcionar." };
+  } catch (e) {
+    // Sin el log, "Error al recepcionar" no le dice nada a nadie: así se tardó en
+    // descubrir que el culpable era el timeout de la transacción.
+    console.error("[recepcionarOC] fallo inesperado:", e);
+    return { error: "Error al recepcionar. Nada se guardó: revisa e intenta de nuevo." };
   }
 }

@@ -1,11 +1,18 @@
 "use client";
 
+import { useEffect } from "react";
 import { cartCount, useCart } from "../store";
 
 export function CartButton() {
   const items = useCart((s) => s.items);
   const open = useCart((s) => s.open);
   const count = cartCount(items);
+
+  // Rehidrata el carro guardado recién montado el cliente: el primer render queda
+  // igual al del servidor (carro vacío) y la hidratación de React no se rompe.
+  useEffect(() => {
+    void useCart.persist.rehydrate();
+  }, []);
 
   return (
     <button

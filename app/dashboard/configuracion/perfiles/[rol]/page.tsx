@@ -8,6 +8,9 @@ import {
   EditorPermisos,
   type OtroPerfil,
 } from "@/features/perfiles/components/EditorPermisos";
+import { TramoLibre } from "@/features/perfiles/components/TramoLibre";
+import { topeDe } from "@/features/descuentos/topes";
+import { SECCION_DESCUENTO } from "@/lib/descuento";
 
 /** Los editables: el Administrador es la llave maestra y no entra a esta pantalla */
 const EDITABLES = ROLES_OPCIONES.filter((r) => r.valor !== "ADMINISTRADOR");
@@ -24,8 +27,9 @@ export default async function EditarPerfilPage({
 
   const otrosRoles = EDITABLES.filter((r) => r.valor !== rol);
 
-  const [inicial, usuarios, ...mapasOtros] = await Promise.all([
+  const [inicial, tope, usuarios, ...mapasOtros] = await Promise.all([
     permisosDe(rol),
+    topeDe(rol),
     prisma.usuario.findMany({
       where: { rol: rol as never, activo: true },
       select: { id: true, nombre: true },
@@ -63,6 +67,14 @@ export default async function EditarPerfilPage({
         inicial={inicial}
         usuarios={usuarios}
         otros={otros}
+        esPropio={rol === session.rol}
+        soloLectura={!escribe}
+      />
+
+      <TramoLibre
+        rol={rol}
+        inicial={tope}
+        autorizaDescuentos={inicial[SECCION_DESCUENTO] === "TOTAL"}
         esPropio={rol === session.rol}
         soloLectura={!escribe}
       />

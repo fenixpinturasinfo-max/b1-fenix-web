@@ -1,9 +1,11 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import ExcelJS from "exceljs";
 import { prisma } from "@/lib/prisma";
 import { esRolGlobal } from "@/lib/auth/permissions";
 import { exigirEscritura } from "@/lib/auth/guards";
+import { enviarCorreo } from "@/lib/email";
 
 export interface ActionState {
   error?: string;
@@ -12,6 +14,193 @@ export interface ActionState {
 
 async function requireInventario() {
   return exigirEscritura("compras.solicitudes");
+}
+
+// ─────────────── Carga desde Excel ───────────────
+
+/** Tope de líneas por solicitud: sobre esto ya no es un pedido, es el catálogo entero. */
+const MAX_LINEAS_EXCEL = 300;
+
+export interface LineaExcel {
+  productoId: string;
+  cantidad: number;
+  /** Precio del archivo, o null si venía vacío: el formulario vuelve a sugerir el suyo. */
+  precio: number | null;
+}
+
+export interface CargaExcelState {
+  error?: string;
+  lineas?: LineaExcel[];
+  resumen?: {
+    cargadas: number;
+    /** Filas con SKU pero sin cantidad: el resto del catálogo, se ignoran a propósito. */
+    sinCantidad: number;
+    /** SKUs del archivo que no existen (o están inactivos) en el catálogo. */
+    desconocidos: string[];
+    /** Filas con cantidad ilegible o negativa. */
+    invalidas: number;
+  };
+}
+
+function celdaTexto(v: unknown): string {
+  if (v == null) return "";
+  if (typeof v === "object" && "text" in (v as Record<string, unknown>)) {
+    return String((v as { text: unknown }).text ?? "").trim();
+  }
+  if (typeof v === "object" && "richText" in (v as Record<string, unknown>)) {
+    const partes = (v as { richText: { text: string }[] }).richText;
+    return partes.map((p) => p.text).join("").trim();
+  }
+  if (typeof v === "object" && "result" in (v as Record<string, unknown>)) {
+    return String((v as { result: unknown }).result ?? "").trim();
+  }
+  return String(v).trim();
+}
+
+function celdaNumero(v: unknown): number | null {
+  const texto = celdaTexto(v);
+  if (!texto) return null;
+  const n = Number(texto.replace(/[^\d.-]/g, ""));
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * Lee el .xlsx de la plantilla y devuelve las líneas para llenar la grilla.
+ *
+ * **No crea nada**: el resultado aterriza en el formulario de Nueva Solicitud, el
+ * comprador revisa —ahí se ven stock, precios y totales— y recién al enviar corre
+ * `crearSolicitudes` con las validaciones de siempre. Subir el archivo equivale a
+ * teclear rápido, no a saltarse la revisión.
+ *
+ * La plantilla baja con el catálogo completo, así que la regla de lectura es una sola:
+ * manda la columna Cantidad. Fila sin cantidad = producto que no se pide.
+ */
+export async function cargarSolicitudExcel(
+  _prev: CargaExcelState,
+  formData: FormData,
+): Promise<CargaExcelState> {
+  try {
+    await requireInventario();
+
+    const archivo = formData.get("archivo");
+    if (!(archivo instanceof File) || archivo.size === 0) {
+      return { error: "Selecciona un archivo .xlsx." };
+    }
+
+    const workbook = new ExcelJS.Workbook();
+    try {
+      // El .d.ts de exceljs declara su propio tipo `Buffer` (shim para cuando no
+      // hay @types/node), que no coincide estructuralmente con el Buffer real.
+      const buffer = Buffer.from(await archivo.arrayBuffer());
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await workbook.xlsx.load(buffer as any);
+    } catch {
+      return {
+        error:
+          "No pude leer el archivo. Debe ser el .xlsx de la plantilla, sin convertirlo a otro formato.",
+      };
+    }
+
+    const hoja = workbook.getWorksheet("Solicitud") ?? workbook.worksheets[0];
+    if (!hoja) return { error: "El archivo no tiene hojas con datos." };
+
+    const indice: Record<string, number> = {};
+    hoja.getRow(1).eachCell((cell, colNumber) => {
+      indice[celdaTexto(cell.value).toLowerCase()] = colNumber;
+    });
+    const colSku = indice["sku"];
+    const colCantidad = indice["cantidad"];
+    // El precio se busca por nombre flexible: "Precio compra (neto)", "Precio", etc.
+    const colPrecio = Object.entries(indice).find(([h]) => h.startsWith("precio"))?.[1];
+    if (!colSku || !colCantidad) {
+      return {
+        error: "El archivo no tiene las columnas SKU y Cantidad. Descarga la plantilla nuevamente.",
+      };
+    }
+
+    const productos = await prisma.producto.findMany({
+      where: { activo: true },
+      select: { id: true, sku: true },
+    });
+    const porSku = new Map(productos.map((p) => [p.sku.toUpperCase(), p.id]));
+
+    // Se acumula por producto: si el mismo SKU aparece dos veces, las cantidades se
+    // suman y queda el último precio informado. Es lo que la persona quiso decir.
+    const acumulado = new Map<string, { cantidad: number; precio: number | null }>();
+    const desconocidos: string[] = [];
+    let sinCantidad = 0;
+    let invalidas = 0;
+
+    hoja.eachRow((row, rowNumber) => {
+      if (rowNumber === 1) return;
+
+      const sku = celdaTexto(row.getCell(colSku).value).toUpperCase();
+      const cantidadRaw = celdaTexto(row.getCell(colCantidad).value);
+      const cantidad = celdaNumero(row.getCell(colCantidad).value);
+
+      if (!sku) return; // fila en blanco
+      if (cantidadRaw === "") {
+        sinCantidad++;
+        return;
+      }
+      if (cantidad === null || cantidad < 0 || !Number.isInteger(cantidad) || cantidad > 1_000_000) {
+        invalidas++;
+        return;
+      }
+      if (cantidad === 0) {
+        sinCantidad++;
+        return;
+      }
+
+      const productoId = porSku.get(sku);
+      if (!productoId) {
+        if (!desconocidos.includes(sku)) desconocidos.push(sku);
+        return;
+      }
+
+      const precioRaw = colPrecio ? celdaNumero(row.getCell(colPrecio).value) : null;
+      const precio = precioRaw !== null && precioRaw >= 0 ? Math.round(precioRaw) : null;
+
+      const previo = acumulado.get(productoId);
+      acumulado.set(productoId, {
+        cantidad: (previo?.cantidad ?? 0) + cantidad,
+        precio: precio ?? previo?.precio ?? null,
+      });
+    });
+
+    const lineas: LineaExcel[] = [...acumulado.entries()].map(([productoId, v]) => ({
+      productoId,
+      cantidad: v.cantidad,
+      precio: v.precio,
+    }));
+
+    if (lineas.length === 0) {
+      return {
+        error:
+          desconocidos.length > 0
+            ? `Ninguna fila válida: ${desconocidos.length} SKU no existen en el catálogo (${desconocidos.slice(0, 5).join(", ")}${desconocidos.length > 5 ? "…" : ""}).`
+            : "El archivo no trae ninguna fila con cantidad. Completa la columna Cantidad en los productos que quieres pedir.",
+      };
+    }
+    if (lineas.length > MAX_LINEAS_EXCEL) {
+      return {
+        error: `El archivo trae ${lineas.length} líneas y el máximo por solicitud es ${MAX_LINEAS_EXCEL}. Divide el pedido.`,
+      };
+    }
+
+    return {
+      lineas,
+      resumen: {
+        cargadas: lineas.length,
+        sinCantidad,
+        desconocidos,
+        invalidas,
+      },
+    };
+  } catch (e) {
+    console.error("[cargarSolicitudExcel] fallo inesperado:", e);
+    return { error: "Error al leer el archivo." };
+  }
 }
 
 /** Crea una solicitud de reposición hacia la casa matriz. */
@@ -108,6 +297,7 @@ export async function crearSolicitudes(
     }
 
     let creadas = 0;
+    let consolidadas = 0;
     let omitidas = 0;
     let folio = 0;
 
@@ -134,7 +324,31 @@ export async function crearSolicitudes(
           },
         });
         if (existente) {
-          omitidas++;
+          // Ya venía en una OC: esa línea tiene dueño, no se toca.
+          if (existente.ordenCompraId) {
+            omitidas++;
+            continue;
+          }
+          // Antes esto se omitía en silencio y el documento nuevo aparecía con menos
+          // líneas de las que la persona pidió — parecía que la pantalla se las comía.
+          // Ahora la línea pendiente se CONSOLIDA: se trae a este folio sumando
+          // cantidades, con el precio y la fecha recién informados. Sigue sin haber
+          // duplicados, pero lo pedido queda completo en el documento que se acaba
+          // de crear, que es donde la persona lo va a buscar.
+          await tx.solicitudReposicion.update({
+            where: { id: existente.id },
+            data: {
+              correlativo: folio,
+              cantidad: existente.cantidad + cantidad,
+              costoUnitario:
+                destino === "PROVEEDOR" && l.costoUnitario != null
+                  ? Math.max(Math.trunc(l.costoUnitario), 0)
+                  : existente.costoUnitario,
+              fechaRequerida: fechaRequerida ?? existente.fechaRequerida,
+              nota: nota ?? existente.nota,
+            },
+          });
+          consolidadas++;
           continue;
         }
         await tx.solicitudReposicion.create({
@@ -159,11 +373,18 @@ export async function crearSolicitudes(
     });
 
     revalidatePath("/dashboard/solicitudes");
-    if (creadas === 0) return { error: "No se creó ninguna solicitud (ya estaban pendientes)." };
+    if (creadas + consolidadas === 0) {
+      return { error: "No se creó ninguna solicitud (revisa cantidades y líneas)." };
+    }
+    const partes = [
+      `${creadas + consolidadas} producto${creadas + consolidadas === 1 ? "" : "s"}`,
+      consolidadas > 0
+        ? `${consolidadas} venía${consolidadas === 1 ? "" : "n"} pendiente${consolidadas === 1 ? "" : "s"} de antes y se consolidó acá sumando cantidades`
+        : null,
+      omitidas > 0 ? `${omitidas} omitido${omitidas === 1 ? "" : "s"} (inválidos o ya en OC)` : null,
+    ].filter(Boolean);
     return {
-      ok: `Solicitud SOL-${String(folio).padStart(6, "0")} creada: ${creadas} producto${
-        creadas === 1 ? "" : "s"
-      }${omitidas > 0 ? ` (${omitidas} omitidos por estar pendientes)` : ""}.`,
+      ok: `Solicitud SOL-${String(folio).padStart(6, "0")} creada: ${partes.join(" · ")}.`,
     };
   } catch {
     return { error: "Error al enviar el pedido." };
@@ -369,9 +590,6 @@ export async function enviarCotizacion(
       return { error: "No hay solicitudes abiertas para este proveedor." };
     }
 
-    const apiKey = process.env.RESEND_API_KEY;
-    if (!apiKey) return { error: "Envío por correo no configurado (falta RESEND_API_KEY)." };
-
     const conPrecio = solicitudes.some((s) => s.costoUnitario != null);
     const clp = (n: number) => `$${n.toLocaleString("es-CL")}`;
     const fmtFechaReq = new Intl.DateTimeFormat("es-CL", { dateStyle: "long", timeZone: "UTC" });
@@ -506,30 +724,13 @@ export async function enviarCotizacion(
         </div>
       </div>`;
 
-    const res = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        from: process.env.EMAIL_FROM ?? "Pinturas Fenix <onboarding@resend.dev>",
-        to: [email],
-        subject: `Solicitud de cotización${numeroRef ? ` ${numeroRef}` : ""} · Pinturas Fenix (${solicitudes.length} productos)`,
-        html,
-      }),
+    const envio = await enviarCorreo({
+      para: email,
+      asunto: `Solicitud de cotización${numeroRef ? ` ${numeroRef}` : ""} · Pinturas Fenix (${solicitudes.length} productos)`,
+      html,
     });
-    if (!res.ok) {
-      // Superficie el motivo real que entrega Resend (dominio no verificado, key inválida, etc.)
-      let detalle = "";
-      try {
-        const body = (await res.json()) as { message?: string };
-        detalle = body.message ?? "";
-      } catch {
-        /* sin cuerpo JSON */
-      }
-      console.error("Resend error", res.status, detalle);
-      return {
-        error: `No se pudo enviar el correo${detalle ? `: ${detalle}` : ` (HTTP ${res.status})`}.`,
-      };
-    }
+    // El motivo real ya viene traducido desde lib/email.ts (credenciales, host, etc.).
+    if (!envio.ok) return { error: envio.error };
 
     // Marcar como COTIZADA: sale de la cola "Pendientes de cotizar"
     await prisma.solicitudReposicion.updateMany({

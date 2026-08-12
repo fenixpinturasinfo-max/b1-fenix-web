@@ -6,6 +6,10 @@ import { esRolGlobal } from "@/lib/auth/permissions";
 import { exigirEscritura } from "@/lib/auth/guards";
 import { esperadoEnCaja, TIPOS_MOV, type TipoMovCaja } from "./caja";
 import { formatCLP } from "@/lib/format";
+import { enviarCorreo } from "@/lib/email";
+import { resolverDescuento } from "@/features/descuentos/resolver";
+import { montoDesdePorcentaje } from "@/lib/descuento";
+import { normalizarRut } from "@/lib/rut";
 
 export interface ActionState {
   error?: string;
@@ -201,11 +205,6 @@ export async function enviarBoletaEmail(
       return { error: "No autorizado." };
     }
 
-    const apiKey = process.env.RESEND_API_KEY;
-    if (!apiKey) {
-      return { error: "Envío por correo no configurado (falta RESEND_API_KEY)." };
-    }
-
     const clp = new Intl.NumberFormat("es-CL", {
       style: "currency",
       currency: "CLP",
@@ -242,6 +241,14 @@ export async function enviarBoletaEmail(
           ${filas}
         </table>
         <div style="border-top:1px dashed #ccc;margin-top:12px;padding-top:10px;font-size:14px;">
+          ${
+            venta.descuento > 0
+              ? `<p style="margin:4px 0;color:#555;">Subtotal
+                   <span style="float:right;">${clp.format(venta.subtotal)}</span></p>
+                 <p style="margin:4px 0;color:#b45309;">Descuento
+                   <span style="float:right;">−${clp.format(venta.descuento)}</span></p>`
+              : ""
+          }
           <p style="display:flex;justify-content:space-between;margin:4px 0;">
             <span style="font-size:18px;font-weight:bold;">TOTAL &nbsp;</span>
             <span style="font-size:18px;font-weight:bold;float:right;">${clp.format(venta.total)}</span>
@@ -253,23 +260,13 @@ export async function enviarBoletaEmail(
         </p>
       </div>`;
 
-    const res = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        from: process.env.EMAIL_FROM ?? "Pinturas Fenix <onboarding@resend.dev>",
-        to: [email],
-        subject: `Boleta ${folio} · Pinturas Fenix`,
-        html,
-      }),
+    const envio = await enviarCorreo({
+      para: email,
+      asunto: `Boleta ${folio} · Pinturas Fenix`,
+      html,
     });
-
-    if (!res.ok) {
-      return { error: "No se pudo enviar el correo. Revisa la configuración de Resend." };
-    }
+    // El motivo real ya viene traducido desde lib/email.ts (credenciales, host, etc.).
+    if (!envio.ok) return { error: envio.error };
 
     // Registro para estadísticas de envío
     await prisma.emailBoleta.create({ data: { ventaId: venta.id, email } });
@@ -277,6 +274,57 @@ export async function enviarBoletaEmail(
     return { ok: `Boleta enviada a ${email}.` };
   } catch {
     return { error: "Error al enviar la boleta." };
+  }
+}
+
+// ─────────────── Cliente de la venta ───────────────
+
+export interface ClientePos {
+  id: string;
+  nombre: string;
+  rut: string;
+  /** Descuento pactado en la ficha. 0 = cliente con ficha pero sin descuento. */
+  descuentoPorcentaje: number;
+}
+
+/**
+ * Busca la ficha de cliente por RUT, para el campo del POS.
+ *
+ * Devuelve solo lo que la caja necesita mostrar. El porcentaje que viaja acá es
+ * informativo: al cobrar, `registrarVenta` vuelve a leer la ficha y calcula el descuento
+ * contra el subtotal real. Un RUT sin ficha no es un error de la venta: se avisa y se
+ * sigue vendiendo sin descuento, como a cualquier cliente de paso.
+ */
+export async function buscarClientePos(
+  rutRaw: string,
+): Promise<{ cliente?: ClientePos; aviso?: string; error?: string }> {
+  try {
+    await requirePos();
+    const rut = normalizarRut(rutRaw);
+    if (!rut) return { error: "RUT inválido. Formato: 12345678-9." };
+
+    const c = await prisma.socioNegocio.findFirst({
+      where: { rut, tipo: "CLIENTE", activo: true },
+      select: {
+        id: true,
+        rut: true,
+        razonSocial: true,
+        nombreFantasia: true,
+        descuentoPorcentaje: true,
+      },
+    });
+    if (!c) return { aviso: "RUT sin ficha de cliente: la venta sigue sin descuento." };
+
+    return {
+      cliente: {
+        id: c.id,
+        nombre: c.nombreFantasia ?? c.razonSocial,
+        rut: c.rut,
+        descuentoPorcentaje: c.descuentoPorcentaje,
+      },
+    };
+  } catch {
+    return { error: "No se pudo buscar el cliente." };
   }
 }
 
@@ -339,6 +387,53 @@ export async function registrarVenta(
       0,
     );
 
+    // ── Cliente con ficha ──
+    // El porcentaje se relee de la ficha, nunca del formulario: lo que manda el navegador
+    // es solo el id. Si la ficha se desactivó con el POS abierto, mejor frenar con un
+    // mensaje claro que cobrar un total distinto al que el cajero tiene en pantalla.
+    const clienteId = String(formData.get("clienteId") ?? "") || null;
+    let cliente: { id: string; nombre: string; porcentaje: number } | null = null;
+    if (clienteId) {
+      const c = await prisma.socioNegocio.findFirst({
+        where: { id: clienteId, tipo: "CLIENTE", activo: true },
+        select: { id: true, razonSocial: true, nombreFantasia: true, descuentoPorcentaje: true },
+      });
+      if (!c) {
+        return { error: "La ficha del cliente ya no está disponible. Quita el RUT y vuelve a cobrar." };
+      }
+      cliente = { id: c.id, nombre: c.nombreFantasia ?? c.razonSocial, porcentaje: c.descuentoPorcentaje };
+    }
+    const descuentoCliente = cliente ? montoDesdePorcentaje(subtotal, cliente.porcentaje) : 0;
+
+    // ── Descuento sobre el total ──
+    // Se resuelve contra `subtotal`, que es el que acaba de recalcularse con los precios
+    // de la base: es la única cifra en la que se puede confiar para medir el tramo libre
+    // del cajero, y también la que impide que un vale viejo deje el total en negativo.
+    // El pactado del cliente entra como piso ya autorizado; no se suma con el manual,
+    // se aplica el mayor de los dos.
+    const descuentoPedido = Math.round(Number(formData.get("descuento") ?? 0));
+    const resuelto = await resolverDescuento({
+      base: subtotal,
+      pedido: descuentoPedido,
+      vale: String(formData.get("valeDescuento") ?? ""),
+      operador: { id: session.sub, rol: session.rol },
+      descuentoCliente,
+    });
+    if (!resuelto.ok) return { error: resuelto.error };
+
+    const { descuento, autorizadorId: descuentoAutorizadoPorId } = resuelto.valor;
+    const descuentoMotivo =
+      descuento > 0
+        ? String(formData.get("descuentoMotivo") ?? "").trim().slice(0, 120) ||
+          // Sin motivo escrito y sin autorizador, el descuento es el pactado de la ficha:
+          // que la boleta lo diga sola, para que el reporte no muestre rebajas mudas.
+          (descuentoAutorizadoPorId === null && cliente
+            ? `Pactado cliente ${cliente.porcentaje}%`
+            : null)
+        : null;
+
+    const total = subtotal - descuento;
+
     const resultado = await prisma.$transaction(async (tx) => {
       // Verificar y descontar stock
       for (const l of lineas) {
@@ -369,9 +464,13 @@ export async function registrarVenta(
           localId,
           usuarioId: session.sub,
           cajaSesionId: caja.id,
+          clienteId: cliente?.id ?? null,
           medioPago,
           subtotal,
-          total: subtotal,
+          descuento,
+          descuentoAutorizadoPorId,
+          descuentoMotivo,
+          total,
           premium,
           detalle: {
             create: lineas.map((l) => {
@@ -416,7 +515,7 @@ export async function registrarVenta(
       ok: "Venta registrada.",
       ventaCorrelativo: resultado.folio,
       ventaId: resultado.ventaId,
-      ventaTotal: subtotal,
+      ventaTotal: total,
     };
   } catch (e) {
     const msg = e instanceof Error ? e.message : "";

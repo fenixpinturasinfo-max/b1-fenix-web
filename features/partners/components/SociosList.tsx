@@ -83,6 +83,7 @@ export function SociosList({ socios, tipo }: { socios: SocioItem[]; tipo: string
             <th className="px-4 py-2.5">Contacto</th>
             <th className="px-4 py-2.5">Comuna</th>
             <th className="px-4 py-2.5">Pago</th>
+            {tipo === "CLIENTE" && <th className="px-4 py-2.5">Dcto.</th>}
             <th className="px-4 py-2.5">Estado</th>
             <th className="px-4 py-2.5"></th>
           </tr>
@@ -113,6 +114,27 @@ export function SociosList({ socios, tipo }: { socios: SocioItem[]; tipo: string
               <td className="whitespace-nowrap px-4 py-2 text-slate-600">
                 {s.condicionPago ? (pagoLabel[s.condicionPago] ?? s.condicionPago) : "—"}
               </td>
+              {tipo === "CLIENTE" && (
+                <td className="whitespace-nowrap px-4 py-2">
+                  <span className="flex items-center gap-1.5">
+                    {s.descuentoPorcentaje > 0 ? (
+                      <span className="rounded-full bg-[#f59e0b]/15 px-2.5 py-0.5 text-xs font-bold text-[#b45309]">
+                        {s.descuentoPorcentaje}%
+                      </span>
+                    ) : (
+                      <span className="text-slate-400">—</span>
+                    )}
+                    {s.cuentaAbierta && (
+                      <span
+                        title="Puede retirar a cuenta y pagar al cierre"
+                        className="rounded-full bg-electric-50 px-2.5 py-0.5 text-xs font-bold text-electric-600"
+                      >
+                        Cuenta
+                      </span>
+                    )}
+                  </span>
+                </td>
+              )}
               <td className="px-4 py-2">
                 <span
                   className={`whitespace-nowrap rounded-full px-2.5 py-0.5 text-xs font-bold ${
@@ -149,7 +171,7 @@ export function SociosList({ socios, tipo }: { socios: SocioItem[]; tipo: string
           ))}
           {visibles.length === 0 && (
             <tr>
-              <td colSpan={8} className="px-4 py-10 text-center text-sm text-slate-400">
+              <td colSpan={tipo === "CLIENTE" ? 9 : 8} className="px-4 py-10 text-center text-sm text-slate-400">
                 {socios.length === 0
                   ? `Aún no hay ${etiqueta}s registrados. Crea el primero con “＋ Nuevo ${etiqueta}”.`
                   : "Sin resultados para tu búsqueda."}

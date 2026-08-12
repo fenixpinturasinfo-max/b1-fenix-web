@@ -135,9 +135,19 @@ export function CartDrawer({ locales }: { locales: CartLocal[] }) {
                 </select>
               </div>
               <div className="flex items-center justify-between text-lg">
-                <span className="text-slate-600">Total</span>
+                <span className="text-slate-600">Total productos</span>
                 <span className="font-bold text-navy-950">{formatCLP(total)}</span>
               </div>
+              <a
+                href="/checkout"
+                onClick={close}
+                className="bg-flame flex h-12 w-full items-center justify-center gap-2 rounded-xl font-bold text-white transition hover:opacity-90"
+              >
+                Comprar y pagar online →
+              </a>
+              <p className="text-center text-xs text-slate-500">
+                Pago con tarjeta vía Webpay · retiro en tienda gratis o despacho a domicilio.
+              </p>
               <a
                 href={buildOrderUrl(
                   items.map((i) => ({
@@ -150,13 +160,10 @@ export function CartDrawer({ locales }: { locales: CartLocal[] }) {
                 )}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#25D366] font-bold text-white transition hover:opacity-90"
+                className="flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-[#25D366] font-bold text-[#128C4A] transition hover:bg-[#25D366]/10"
               >
-                Pedir por WhatsApp
+                o pedir por WhatsApp
               </a>
-              <p className="text-center text-xs text-slate-500">
-                Confirmamos stock y te avisamos cuándo retirar. Sin pago online por ahora.
-              </p>
             </div>
           </>
         )}

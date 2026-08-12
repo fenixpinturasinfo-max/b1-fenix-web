@@ -41,6 +41,22 @@ model PermisoPerfil {
   @@index([rol])
 }
 
+/// Cuánto puede descontar cada perfil sin pedirle autorización a nadie.
+///
+/// Es el tramo libre del mesón: bajo este techo el cajero cierra la venta solo y el
+/// descuento queda registrado a su nombre; pasado el techo aparecen las credenciales del
+/// supervisor. Sin fila el tramo es cero, así que un perfil nuevo nace pidiendo permiso.
+model TopeDescuento {
+  rol Rol @id
+
+  /// Porcentaje del total que el perfil descuenta por su cuenta. 0 = siempre autoriza otro.
+  porcentaje Int @default(0)
+
+  /// Techo en pesos, para que un porcentaje chico no se vuelva mucha plata en una venta
+  /// grande. 0 = sin techo: manda solo el porcentaje.
+  montoMaximo Int @default(0)
+}
+
 model Usuario {
   id           String   @id @default(cuid())
   email        String   @unique
@@ -70,6 +86,12 @@ model Usuario {
   lineasContadas       TomaLinea[]      @relation("LineasContadas")
   facturasVentaCreadas FacturaVenta[]   @relation("FacturasVentaCreadas")
   facturasVentaAnuladas FacturaVenta[]  @relation("FacturasVentaAnuladas")
+  descuentosVentaAutorizados   Venta[]        @relation("DescuentosVentaAutorizados")
+  descuentosFacturaAutorizados FacturaVenta[] @relation("DescuentosFacturaAutorizados")
+  solicitudesDescuentoCreadas   SolicitudDescuento[] @relation("SolicitudesDescuentoCreadas")
+  solicitudesDescuentoResueltas SolicitudDescuento[] @relation("SolicitudesDescuentoResueltas")
+  retirosCreados  RetiroCuenta[] @relation("RetirosCreados")
+  retirosAnulados RetiroCuenta[] @relation("RetirosAnulados")
 
   @@index([localId])
 }
@@ -99,6 +121,9 @@ model Local {
   pedidos              PedidoCliente[]
   facturasVenta        FacturaVenta[]
   tomas                TomaInventario[]
+  solicitudesDescuento SolicitudDescuento[]
+  retirosCuenta        RetiroCuenta[]
+  pedidosOnline        PedidoOnline[]
 }
 
 // ─────────────────────────── Catálogo ───────────────────────────
@@ -141,6 +166,8 @@ model Producto {
   pedidoLineas  PedidoClienteLinea[]
   facturaVentaLineas FacturaVentaLinea[]
   tomaLineas    TomaLinea[]
+  retiroLineas  RetiroCuentaLinea[]
+  pedidoOnlineLineas PedidoOnlineLinea[]
 
   @@index([categoriaId])
   @@index([marca])
@@ -190,6 +217,13 @@ model MovimientoInventario {
   // Salida por factura de venta: el equivalente de `ventaId` para el camino sin caja
   facturaVentaId String?
   facturaVenta   FacturaVenta? @relation(fields: [facturaVentaId], references: [id])
+  // Salida por retiro a cuenta: el stock sale al retirar, no al cobrar. Va como
+  // SALIDA_VENTA porque para el inventario ES una venta; este vínculo la distingue.
+  retiroCuentaId String?
+  retiroCuenta   RetiroCuenta? @relation(fields: [retiroCuentaId], references: [id])
+  // Salida por venta web pagada con Webpay: mismo criterio que el retiro a cuenta.
+  pedidoOnlineId String?
+  pedidoOnline   PedidoOnline? @relation(fields: [pedidoOnlineId], references: [id])
   transferenciaPar String?  // id del movimiento espejo en el otro local
   // Toma de inventario que lo originó, para poder auditar hacia atrás
   tomaLineaId String?     @unique
@@ -328,10 +362,19 @@ model Venta {
   usuario     Usuario     @relation(fields: [usuarioId], references: [id])
   cajaSesionId String?
   cajaSesion  CajaSesion? @relation(fields: [cajaSesionId], references: [id])
+  /// Cliente de la ficha de socios, cuando el cajero ingresó su RUT. Null = cliente de
+  /// paso. Con ficha, su descuento configurado se aplica solo, sin autorización.
+  clienteId   String?
+  cliente     SocioNegocio? @relation(fields: [clienteId], references: [id])
   medioPago   MedioPago
   estado      EstadoVenta @default(COMPLETADA)
   subtotal    Int
   descuento   Int         @default(0)
+  /// Quién habilitó el descuento. Null cuando no hubo o cuando lo aplicó alguien que ya
+  /// tenía el permiso: en ese caso el autorizador es el propio `usuarioId` de la venta.
+  descuentoAutorizadoPorId String?
+  descuentoAutorizadoPor   Usuario? @relation("DescuentosVentaAutorizados", fields: [descuentoAutorizadoPorId], references: [id])
+  descuentoMotivo          String?
   total       Int
   /// Marca comercial de la venta. No afecta subtotal ni total: existe para poder medir
   /// cuántas ventas Premium hace cada vendedor y cada local.
@@ -340,6 +383,9 @@ model Venta {
 
   detalle     DetalleVenta[]
   movimientos MovimientoInventario[]
+  /// Retiros a cuenta que esta boleta cobró. Si tiene alguno, la venta NO movió stock:
+  /// ya había salido con cada retiro.
+  retirosCuenta RetiroCuenta[]
 
   @@unique([localId, correlativo])
   @@index([localId, creadoEn])
@@ -347,6 +393,8 @@ model Venta {
   @@index([cajaSesionId])
   // "Mi turno" filtra por vendedor sobre la tabla que más crece
   @@index([usuarioId, creadoEn])
+  // Historial de compras del cliente con ficha
+  @@index([clienteId])
 }
 
 model DetalleVenta {
@@ -423,7 +471,12 @@ model FacturaVenta {
   pedido      PedidoCliente? @relation(fields: [pedidoId], references: [id])
   localId     String
   local       Local         @relation(fields: [localId], references: [id])
+  /// Neto ya rebajado por `descuento`. El IVA se calcula sobre este valor.
   neto        Int
+  descuento   Int           @default(0)
+  descuentoAutorizadoPorId String?
+  descuentoAutorizadoPor   Usuario? @relation("DescuentosFacturaAutorizados", fields: [descuentoAutorizadoPorId], references: [id])
+  descuentoMotivo          String?
   iva         Int // 19% del neto
   total       Int
   fechaEmision     DateTime
@@ -442,6 +495,8 @@ model FacturaVenta {
 
   lineas      FacturaVentaLinea[]
   movimientos MovimientoInventario[]
+  /// Retiros a cuenta que esta factura cobró. Si tiene alguno, la factura NO movió stock.
+  retirosCuenta RetiroCuenta[]
 
   // Cuentas por cobrar: la vista de vencidas ordena por vencimiento dentro del estado
   @@index([estado, fechaVencimiento])
@@ -497,6 +552,13 @@ model SocioNegocio {
   direccion      String?
   comuna         String?
   condicionPago  String? // CONTADO, 30D, 60D...
+  /// Descuento pactado con el cliente, en % del total (0 = sin descuento). Solo tiene
+  /// sentido en fichas CLIENTE. En el POS se aplica solo al ingresar el RUT, y en la
+  /// factura al elegir el cliente: quien lo configuró en la ficha ya lo autorizó.
+  descuentoPorcentaje Int  @default(0)
+  /// Puede llevarse mercadería a cuenta y pagar al consolidar (semana, quincena, mes).
+  /// Es crédito informal: alguien tiene que otorgarlo a propósito en la ficha.
+  cuentaAbierta  Boolean   @default(false)
   activo         Boolean   @default(true)
   creadoEn       DateTime  @default(now())
 
@@ -507,8 +569,209 @@ model SocioNegocio {
   preciosCompra  PrecioCompraProveedor[]
   pedidos        PedidoCliente[]
   facturasVenta  FacturaVenta[]
+  ventas         Venta[]
+  solicitudesDescuento SolicitudDescuento[]
+  retirosCuenta  RetiroCuenta[]
 
   @@unique([rut, tipo])
+}
+
+// ─────────────────── Tienda web: pedidos pagados con Webpay ───────────────────
+
+enum EstadoPedidoOnline {
+  PENDIENTE_PAGO // creado, esperando que Webpay confirme
+  PAGADO         // pago autorizado; el stock ya salió, falta preparar
+  DESPACHADO     // entregado al courier o en reparto
+  ENTREGADO      // retirado en tienda o recibido por el cliente
+  ANULADO        // pago rechazado, abandonado, o no se pudo iniciar
+}
+
+enum TipoEntrega {
+  RETIRO           // retiro en tienda, gratis
+  DESPACHO_ANILLO  // domicilio dentro del anillo: tarifa fija cobrada en Webpay
+  DESPACHO_COURIER // fuera del anillo: courier elegido, envío POR PAGAR al recibir
+}
+
+/// Pedido del carro público, pagado con Webpay Plus.
+///
+/// Vive aparte de `Venta` (que exige cajero y caja) y de `PedidoCliente` (que solo
+/// reserva): acá el pago llega primero y por internet. **Al confirmar el pago el stock
+/// sale de inmediato** del local que entrega, con movimientos SALIDA_VENTA: lo pagado
+/// online no puede venderse de nuevo en el mesón. Los montos quedan congelados al
+/// iniciar el pago: si el precio cambia mientras el cliente está en Webpay, paga lo
+/// que vio.
+model PedidoOnline {
+  id          String   @id @default(cuid())
+  correlativo Int      @unique // WEB-000001
+  estado      EstadoPedidoOnline @default(PENDIENTE_PAGO)
+  tipoEntrega TipoEntrega
+
+  // Comprador (sin cuenta: la tienda pública no tiene login)
+  nombre   String
+  email    String
+  telefono String
+
+  /// Retiro: dónde retira. Despacho: local que prepara y despacha (casa matriz).
+  localId String
+  local   Local  @relation(fields: [localId], references: [id])
+  direccion String?
+  comuna    String?
+  /// Courier elegido cuando el envío es por pagar (fuera del anillo).
+  courier   String?
+
+  // Montos en CLP, congelados al iniciar el pago
+  montoProductos Int
+  montoEnvio     Int @default(0)
+  total          Int
+
+  // Webpay Plus
+  tbkToken        String?  @unique
+  tbkAutorizacion String?
+  /// Últimos 4 dígitos de la tarjeta, para el comprobante.
+  tbkTarjeta      String?
+  pagadoEn        DateTime?
+
+  nota         String?
+  creadoEn     DateTime  @default(now())
+  despachadoEn DateTime?
+  entregadoEn  DateTime?
+
+  lineas      PedidoOnlineLinea[]
+  movimientos MovimientoInventario[]
+
+  @@index([estado, creadoEn])
+  @@index([localId, estado])
+}
+
+model PedidoOnlineLinea {
+  id         String       @id @default(cuid())
+  pedidoId   String
+  pedido     PedidoOnline @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
+  productoId String
+  producto   Producto     @relation(fields: [productoId], references: [id])
+  cantidad   Int
+  /// Congelado al iniciar el pago: el cliente paga el precio que vio.
+  precioUnitario Int
+  /// Costo congelado al confirmar, para margen histórico.
+  costoUnitario  Int @default(0)
+  subtotal       Int
+
+  @@index([pedidoId])
+}
+
+// ─────────────────── Cuenta abierta: retiros y cobro consolidado ───────────────────
+
+enum EstadoRetiroCuenta {
+  ABIERTO // retirado; el stock ya salió, falta cobrarlo
+  COBRADO // consolidado en una boleta o factura
+  ANULADO // descartado; el stock volvió con movimientos espejo
+}
+
+/// Retiro a cuenta de un cliente especial (estilo SAP B1: la Entrega mueve inventario,
+/// la Factura solo cobra).
+///
+/// El cliente con `cuentaAbierta` se lleva mercadería durante el período; cada retiro
+/// **rebaja stock al momento** y congela precio y costo del día. Al cierre (semana,
+/// quincena, mes: el período lo decide el negocio, no el sistema) los retiros ABIERTOS
+/// se consolidan en una boleta o factura que cobra **sin volver a mover stock**.
+///
+/// Sin esto el inventario mentiría toda la semana: la pintura está en la obra del
+/// cliente pero el sistema la contaría en la estantería.
+model RetiroCuenta {
+  id          String   @id @default(cuid())
+  correlativo Int      @unique // RC-000001
+  clienteId   String
+  cliente     SocioNegocio @relation(fields: [clienteId], references: [id])
+  localId     String
+  local       Local    @relation(fields: [localId], references: [id])
+  estado      EstadoRetiroCuenta @default(ABIERTO)
+  /// Suma de las líneas a precio congelado. En la boleta se lee IVA incluido; en la
+  /// factura, como neto (misma convención que el resto del sistema).
+  total       Int
+  nota        String?
+  creadoPorId String
+  creadoPor   Usuario  @relation("RetirosCreados", fields: [creadoPorId], references: [id])
+  creadoEn    DateTime @default(now())
+
+  // Cobro: exactamente uno de los dos cuando estado = COBRADO
+  ventaId        String?
+  venta          Venta? @relation(fields: [ventaId], references: [id])
+  facturaVentaId String?
+  facturaVenta   FacturaVenta? @relation(fields: [facturaVentaId], references: [id])
+  cobradoEn      DateTime?
+
+  /// Anular devuelve el stock. Solo sobre retiros ABIERTOS: uno cobrado se corrige
+  /// anulando el documento que lo cobró.
+  anuladoPorId    String?
+  anuladoPor      Usuario? @relation("RetirosAnulados", fields: [anuladoPorId], references: [id])
+  anuladoEn       DateTime?
+  motivoAnulacion String?
+
+  lineas      RetiroCuentaLinea[]
+  movimientos MovimientoInventario[]
+
+  @@index([clienteId, estado])
+  @@index([localId, estado])
+  @@index([estado, creadoEn])
+}
+
+model RetiroCuentaLinea {
+  id         String       @id @default(cuid())
+  retiroId   String
+  retiro     RetiroCuenta @relation(fields: [retiroId], references: [id], onDelete: Cascade)
+  productoId String
+  producto   Producto     @relation(fields: [productoId], references: [id])
+  cantidad   Int
+  /// Congelados al retirar: si el precio sube el miércoles, lo del lunes vale lo del lunes
+  precioUnitario Int
+  costoUnitario  Int
+  subtotal       Int
+
+  @@index([retiroId])
+}
+
+// ─────────────────── Aprobación de descuentos por correo ───────────────────
+
+enum EstadoSolicitudDescuento {
+  PENDIENTE
+  APROBADA
+  RECHAZADA
+}
+
+/// Descuento que superó lo que el cajero puede aplicar solo, esperando el visto bueno de
+/// gerencia **a distancia**: se envía un correo con enlaces de un clic a cada persona con
+/// el permiso `ventas.descuento`, y el POS consulta el estado hasta que alguien resuelva.
+///
+/// Convive con la autorización presencial (el supervisor teclea sus credenciales en la
+/// caja): son dos caminos hacia el mismo vale firmado. La solicitud expira sola —se mide
+/// `expiraEn` al consultar, sin proceso de limpieza— y una vez resuelta queda como
+/// registro de quién aprobó qué, aunque la venta después no se concrete.
+model SolicitudDescuento {
+  id            String   @id @default(cuid())
+  estado        EstadoSolicitudDescuento @default(PENDIENTE)
+  /// "POS" o "FACTURA": para que el correo diga de dónde viene la venta.
+  contexto      String
+  localId       String
+  local         Local    @relation(fields: [localId], references: [id])
+  solicitanteId String
+  solicitante   Usuario  @relation("SolicitudesDescuentoCreadas", fields: [solicitanteId], references: [id])
+  /// Cliente con ficha, si el cajero ingresó su RUT. Da contexto a quien aprueba.
+  clienteId     String?
+  cliente       SocioNegocio? @relation(fields: [clienteId], references: [id])
+  /// Total (o neto, en facturas) al momento de pedir. Referencial: el vale se emite por
+  /// `monto` y la Server Action que cobra recalcula la base real desde la BD.
+  base          Int
+  /// Descuento pedido, en pesos. Es el monto exacto por el que se firma el vale.
+  monto         Int
+  motivo        String?
+  creadoEn      DateTime @default(now())
+  expiraEn      DateTime
+  resueltaEn    DateTime?
+  resueltaPorId String?
+  resueltaPor   Usuario? @relation("SolicitudesDescuentoResueltas", fields: [resueltaPorId], references: [id])
+
+  @@index([solicitanteId, creadoEn])
+  @@index([estado, creadoEn])
 }
 
 // ─────────────────────────── Solicitudes a casa matriz ───────────────────────────

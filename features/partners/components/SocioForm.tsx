@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useRef } from "react";
+import { useActionState, useRef, useState } from "react";
 import { guardarSocio, type ActionState } from "../actions";
 
 export interface SocioData {
@@ -15,6 +15,10 @@ export interface SocioData {
   direccion: string | null;
   comuna: string | null;
   condicionPago: string | null;
+  /** Descuento pactado (%). Solo tiene sentido en clientes; en proveedores queda 0. */
+  descuentoPorcentaje: number;
+  /** Puede llevarse mercadería a cuenta y pagar al consolidar (solo clientes). */
+  cuentaAbierta: boolean;
 }
 
 const input =
@@ -48,6 +52,9 @@ export function SocioForm({
     return res;
   }, {});
   const uid = socio?.id ?? "new";
+  // Controlado solo para saber si mostrar el campo de descuento: el % de un proveedor
+  // no significa nada y verlo ahí invitaría a llenarlo.
+  const [tipo, setTipo] = useState(socio?.tipo ?? tipoDefault ?? "PROVEEDOR");
 
   return (
     <form
@@ -63,7 +70,8 @@ export function SocioForm({
           id={`s-tipo-${uid}`}
           name="tipo"
           required
-          defaultValue={socio?.tipo ?? tipoDefault ?? "PROVEEDOR"}
+          value={tipo}
+          onChange={(e) => setTipo(e.target.value)}
           className={input}
         >
           <option value="PROVEEDOR">Proveedor</option>
@@ -112,6 +120,44 @@ export function SocioForm({
           <option value="90D">90 días</option>
         </select>
       </div>
+      {tipo === "CLIENTE" && (
+        <div>
+          <label htmlFor={`s-dcto-${uid}`} className="mb-1 block text-sm font-semibold text-slate-700">
+            Descuento cliente (%)
+          </label>
+          <input
+            id={`s-dcto-${uid}`}
+            name="descuentoPorcentaje"
+            type="number"
+            min={0}
+            max={100}
+            inputMode="numeric"
+            defaultValue={socio?.descuentoPorcentaje || ""}
+            placeholder="0"
+            className={input}
+          />
+          <p className="mt-1 text-xs text-slate-400">
+            Se aplica solo al ingresar su RUT en el POS o al elegirlo en una factura.
+          </p>
+        </div>
+      )}
+      {tipo === "CLIENTE" && (
+        <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-slate-300 p-3 transition hover:border-electric-500 sm:col-span-2 lg:col-span-1">
+          <input
+            type="checkbox"
+            name="cuentaAbierta"
+            defaultChecked={socio?.cuentaAbierta ?? false}
+            className="mt-0.5 h-4 w-4 accent-[#0e4c92]"
+          />
+          <span className="min-w-0">
+            <span className="block text-sm font-bold text-navy-950">Cuenta abierta</span>
+            <span className="block text-xs text-slate-500">
+              Puede retirar mercadería a cuenta y pagar al cierre (semana, quincena o mes).
+              Es crédito: actívalo a propósito.
+            </span>
+          </span>
+        </label>
+      )}
       <div className="flex items-end gap-2">
         <button
           type="submit"

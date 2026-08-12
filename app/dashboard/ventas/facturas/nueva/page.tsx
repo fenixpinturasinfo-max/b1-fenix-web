@@ -1,5 +1,8 @@
 import Link from "next/link";
 import { requireSeccion } from "@/lib/auth/guards";
+import { puedeEscribir } from "@/lib/auth/permissions";
+import { SECCION_DESCUENTO } from "@/lib/descuento";
+import { topeDe } from "@/features/descuentos/topes";
 import { esRolGlobal } from "@/lib/auth/permissions";
 import { prisma } from "@/lib/prisma";
 import { getLocalesActivos } from "@/lib/cache";
@@ -14,6 +17,8 @@ export default async function NuevaFacturaVentaPage({
   searchParams: Promise<{ pedido?: string }>;
 }) {
   const session = await requireSeccion("ventas.facturas");
+  const puedeDescontar = await puedeEscribir(session.rol, SECCION_DESCUENTO);
+  const tope = puedeDescontar ? null : await topeDe(session.rol);
   const { pedido: pedidoParam } = await searchParams;
   const esGlobal = esRolGlobal(session.rol);
   const alcance = esGlobal ? {} : { localId: session.localId! };
@@ -28,6 +33,7 @@ export default async function NuevaFacturaVentaPage({
         razonSocial: true,
         nombreFantasia: true,
         condicionPago: true,
+        descuentoPorcentaje: true,
       },
     }),
     getLocalesActivos(),
@@ -87,11 +93,14 @@ export default async function NuevaFacturaVentaPage({
       ) : (
         <div className="rounded-2xl border border-slate-200 bg-white p-6">
           <FacturaVentaForm
+            puedeDescontar={puedeDescontar}
+            tope={tope}
             clientes={clientes.map((c) => ({
               id: c.id,
               nombre: c.nombreFantasia ?? c.razonSocial,
               rut: c.rut,
               condicionPago: c.condicionPago,
+              descuentoPorcentaje: c.descuentoPorcentaje,
             }))}
             locales={locales.map((l) => ({ id: l.id, nombre: l.nombre }))}
             productos={productos.map((p) => ({

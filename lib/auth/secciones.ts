@@ -194,6 +194,37 @@ export const SECCIONES: Seccion[] = [
     descripcion: "Facturas de venta a clientes empresa y cuentas por cobrar",
   },
   {
+    id: "ventas.cuenta",
+    modulo: "ventas",
+    label: "Cuenta abierta",
+    href: "/dashboard/ventas/cuenta",
+    permiteLectura: true,
+    descripcion:
+      "Retiros a cuenta de clientes especiales: el stock sale al retirar y se cobra consolidado al cierre del período",
+  },
+  {
+    id: "ventas.online",
+    modulo: "ventas",
+    label: "Pedidos web",
+    href: "/dashboard/ventas/online",
+    permiteLectura: true,
+    descripcion:
+      "Compras pagadas con Webpay en la tienda web: preparar, despachar y entregar",
+  },
+  {
+    // Como "Aplicar tomas": no es un lugar al que ir, es un derecho sobre pantallas que
+    // ya existen. Quien lo tiene puede descontar sin pedirle permiso a nadie, y además
+    // autorizar el descuento de un cajero que no lo tiene, tecleando sus credenciales
+    // en la misma caja.
+    id: "ventas.descuento",
+    modulo: "ventas",
+    label: "Autorizar descuentos",
+    href: "/dashboard/pos",
+    permiteLectura: false,
+    descripcion: "Aplicar y autorizar descuentos sobre el total en POS y facturas",
+    enMenu: false,
+  },
+  {
     id: "ventas.partidas",
     modulo: "ventas",
     label: "Lista de partidas",
@@ -401,6 +432,8 @@ export const MATRIZ_DEFECTO: Record<string, Record<string, Nivel>> = {
     "ventas.boletas": "TOTAL",
     "ventas.facturas": "TOTAL",
     "ventas.partidas": "TOTAL",
+    // Solo el gerente nace con esta llave: es quien autoriza al cajero en el mesón
+    "ventas.descuento": "TOTAL",
     "socios.socios": "TOTAL",
     "reportes.mi-turno": "TOTAL",
     "reportes.general": "TOTAL",

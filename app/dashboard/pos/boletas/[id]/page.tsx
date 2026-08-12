@@ -36,6 +36,7 @@ export default async function BoletaPage({
     include: {
       local: true,
       usuario: true,
+      descuentoAutorizadoPor: { select: { nombre: true } },
       detalle: { include: { producto: true } },
     },
   });
@@ -119,7 +120,15 @@ export default async function BoletaPage({
                 <span className="tabular-nums">{formatCLP(venta.subtotal)}</span>
               </div>
               <div className="flex justify-between text-slate-600">
-                <span>Descuento</span>
+                <span>
+                  Descuento
+                  {venta.descuentoAutorizadoPor && (
+                    <span className="ml-1 text-xs text-slate-400">
+                      aut. {venta.descuentoAutorizadoPor.nombre}
+                      {venta.descuentoMotivo ? ` · ${venta.descuentoMotivo}` : ""}
+                    </span>
+                  )}
+                </span>
                 <span className="tabular-nums">−{formatCLP(venta.descuento)}</span>
               </div>
             </>

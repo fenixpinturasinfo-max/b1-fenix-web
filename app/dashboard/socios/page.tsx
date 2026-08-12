@@ -33,6 +33,8 @@ export default async function SociosPage({
     direccion: s.direccion,
     comuna: s.comuna,
     condicionPago: s.condicionPago,
+    descuentoPorcentaje: s.descuentoPorcentaje,
+    cuentaAbierta: s.cuentaAbierta,
     activo: s.activo,
   }));
 

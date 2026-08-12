@@ -280,7 +280,10 @@ function SolicitudModal({ doc, onClose }: { doc: DocSolicitud; onClose: () => vo
             <p className="mt-1 text-sm text-slate-500">
               {doc.proveedor ? `🚚 ${doc.proveedor} · ` : ""}📍 Entregar en{" "}
               <b className="text-navy-950">{doc.local}</b> · creada el {doc.fecha} por{" "}
-              {doc.solicitante}
+              {doc.solicitante} ·{" "}
+              <b className="text-navy-950">
+                {doc.lineas.length} línea{doc.lineas.length === 1 ? "" : "s"}
+              </b>
               {doc.oc && " · copiada a OC (solo lectura)"}
             </p>
           </div>

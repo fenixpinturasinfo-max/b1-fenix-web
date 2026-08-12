@@ -1,6 +1,6 @@
-import { esRolGlobal } from "@/lib/auth/permissions";
-import { notFound } from "next/navigation";
-import { requireSeccion } from "@/lib/auth/guards";
+import { esRolGlobal, puedeEscribir, puedeVer } from "@/lib/auth/permissions";
+import { notFound, redirect } from "next/navigation";
+import { getSession } from "@/lib/auth/session";
 import { prisma } from "@/lib/prisma";
 import { formatCLP } from "@/lib/format";
 import { RecepcionForm } from "@/features/purchases/components/RecepcionForm";
@@ -55,7 +55,19 @@ export default async function OCDetallePage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  const session = await requireSeccion("compras.ordenes");
+  // Esta página es también la puerta de la recepción: quien tiene Entradas entra igual,
+  // aunque su perfil no vea Órdenes de compra (el encargado de local típico).
+  const session = await getSession();
+  if (!session) redirect("/login");
+  const [veOrdenes, veEntradas, escribeOrdenes, escribeEntradas, escribeFacturas] =
+    await Promise.all([
+      puedeVer(session.rol, "compras.ordenes"),
+      puedeVer(session.rol, "compras.entradas"),
+      puedeEscribir(session.rol, "compras.ordenes"),
+      puedeEscribir(session.rol, "compras.entradas"),
+      puedeEscribir(session.rol, "compras.facturas"),
+    ]);
+  if (!veOrdenes && !veEntradas) redirect("/dashboard");
   const { id } = await params;
 
   const oc = await prisma.ordenCompra.findUnique({
@@ -84,10 +96,19 @@ export default async function OCDetallePage({
       sku: l.producto.sku,
       pendiente: l.cantidad - l.cantidadRecibida,
     }));
+  // Anular la OC es del dueño del documento (permiso de Órdenes), no de quien recepciona.
   const puedeAnular =
-    oc.estado !== "ANULADA" && oc.estado !== "CERRADA" && !oc.factura && pendientes.length > 0;
+    escribeOrdenes &&
+    oc.estado !== "ANULADA" &&
+    oc.estado !== "CERRADA" &&
+    !oc.factura &&
+    pendientes.length > 0;
+  // Recepciona quien tiene Entradas (bodega, encargado); el formulario no se muestra a
+  // quien no podría enviarlo. El servidor lo vuelve a exigir en `recepcionarOC`.
   const puedeRecepcionar =
-    (oc.estado === "ENVIADA" || oc.estado === "RECIBIDA_PARCIAL") && pendientes.length > 0;
+    escribeEntradas &&
+    (oc.estado === "ENVIADA" || oc.estado === "RECIBIDA_PARCIAL") &&
+    pendientes.length > 0;
 
   return (
     <div className="space-y-6">
@@ -236,7 +257,10 @@ export default async function OCDetallePage({
         </section>
       )}
 
-      {/* Facturación */}
+      {/* Facturación.
+          El formulario solo aparece a quien tiene permiso de Facturas de compra (gerencia):
+          quien recepciona no debe registrar la factura, y mostrarle un formulario que el
+          servidor va a rebotar solo confunde. La separación de deberes es a propósito. */}
       {oc.factura ? (
         <section className="rounded-2xl border border-slate-200 bg-white p-6">
           <h2 className="mb-2 text-lg font-bold text-navy-950">Factura registrada</h2>
@@ -251,7 +275,8 @@ export default async function OCDetallePage({
           </p>
         </section>
       ) : (
-        oc.estado !== "ANULADA" && (
+        oc.estado !== "ANULADA" &&
+        (escribeFacturas ? (
           <section className="rounded-2xl border border-slate-200 bg-white p-6">
             <h2 className="mb-1 text-lg font-bold text-navy-950">Registrar factura de compra</h2>
             <p className="mb-3 text-sm text-slate-500">
@@ -259,7 +284,13 @@ export default async function OCDetallePage({
             </p>
             <FacturaForm ocId={oc.id} neto={neto} hayPendientes={pendientes.length > 0} />
           </section>
-        )
+        ) : (
+          <p className="rounded-2xl border border-dashed border-slate-300 bg-cloud/40 px-5 py-3.5 text-sm text-slate-500">
+            📄 Factura pendiente: la registra gerencia (permiso <b>Facturas de compra</b>)
+            desde esta misma OC. Tu parte es la recepción física
+            {oc.entradas.length > 0 ? ", que ya quedó registrada." : ", en la sección de arriba."}
+          </p>
+        ))
       )}
 
       {/* Entradas registradas */}

@@ -1,7 +1,12 @@
 "use client";
 
-import { useActionState, useEffect, useState } from "react";
-import { crearSolicitudes, type ActionState } from "../actions";
+import { useActionState, useEffect, useRef, useState } from "react";
+import {
+  cargarSolicitudExcel,
+  crearSolicitudes,
+  type ActionState,
+  type CargaExcelState,
+} from "../actions";
 import { formatCLP } from "@/lib/format";
 import {
   EditorLineas,
@@ -71,10 +76,48 @@ export function SolicitudCompra({
     if (state.ok) {
       setLineas([nuevaLineaEditor()]);
       setFechaRequerida(fechaISO(7));
+      setCargaExcel(null);
     }
   }, [state.ok]);
 
   const porId = new Map(productos.map((p) => [p.id, p]));
+
+  // ── Carga desde Excel ──
+  const [cargaExcel, setCargaExcel] = useState<CargaExcelState | null>(null);
+  const [cargandoExcel, setCargandoExcel] = useState(false);
+  const inputExcel = useRef<HTMLInputElement>(null);
+
+  /** Mismo criterio de sugerencia que la grilla: lista del proveedor, si no CPP. */
+  const precioSugerido = (productoId: string) =>
+    preciosCompra[proveedorId]?.[productoId] ?? porId.get(productoId)?.precioCosto ?? 0;
+
+  const onExcel = async (file: File | undefined) => {
+    if (!file || cargandoExcel) return;
+    setCargandoExcel(true);
+    setCargaExcel(null);
+    try {
+      const fd = new FormData();
+      fd.append("archivo", file);
+      const res = await cargarSolicitudExcel({}, fd);
+      setCargaExcel(res);
+      if (res.lineas) {
+        // Reemplaza la grilla: el archivo ES el pedido. Las filas quedan a la vista
+        // para revisar stock, precios y totales antes de enviar.
+        setLineas(
+          res.lineas.map((l) => ({
+            ...nuevaLineaEditor(),
+            productoId: l.productoId,
+            cantidad: l.cantidad,
+            precio: l.precio ?? precioSugerido(l.productoId),
+          })),
+        );
+      }
+    } finally {
+      setCargandoExcel(false);
+      // Permite volver a subir el mismo archivo corregido
+      if (inputExcel.current) inputExcel.current.value = "";
+    }
+  };
 
   // Precio sugerido: lista del proveedor seleccionado, si no CPP
   const precioDe = (p: ArticuloDoc) => {
@@ -188,6 +231,68 @@ export function SolicitudCompra({
             ))}
           </div>
         </div>
+      </div>
+
+      {/* Carga masiva desde Excel: descargar plantilla → completar cantidades → subir */}
+      <div className="rounded-2xl border border-dashed border-slate-300 bg-cloud/40 px-4 py-3">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
+          <span className="font-bold text-navy-950">📋 ¿Lista larga?</span>
+          <span className="text-slate-600">
+            Descarga la plantilla con el catálogo, completa la <b>Cantidad</b> (y ajusta el
+            precio si cotizaron otro) y súbela: las líneas llenan la grilla para revisar.
+          </span>
+          <a
+            href={`/dashboard/solicitudes/plantilla${proveedorId ? `?proveedor=${proveedorId}` : ""}`}
+            className="font-bold text-electric-600 hover:underline"
+            title={
+              proveedorId
+                ? "La plantilla baja con los precios de lista del proveedor elegido"
+                : "Elige primero el proveedor para que la plantilla traiga sus precios de lista"
+            }
+          >
+            ⬇ Descargar plantilla{proveedorId ? " (precios del proveedor)" : ""}
+          </a>
+          <label className="cursor-pointer font-bold text-electric-600 hover:underline">
+            {cargandoExcel ? "Leyendo archivo…" : "⬆ Cargar Excel"}
+            <input
+              ref={inputExcel}
+              type="file"
+              accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+              disabled={cargandoExcel}
+              onChange={(e) => void onExcel(e.target.files?.[0])}
+              className="sr-only"
+            />
+          </label>
+        </div>
+
+        {cargaExcel?.error && (
+          <p role="alert" className="mt-2 text-sm font-semibold text-fenix-600">
+            {cargaExcel.error}
+          </p>
+        )}
+        {cargaExcel?.resumen && (
+          <div className="mt-2 flex flex-wrap gap-2 text-xs font-bold">
+            <span className="rounded-full bg-lime-400/20 px-3 py-1 text-[#4d7c0f]">
+              ✓ {cargaExcel.resumen.cargadas} línea{cargaExcel.resumen.cargadas === 1 ? "" : "s"} cargada{cargaExcel.resumen.cargadas === 1 ? "" : "s"} a la grilla
+            </span>
+            {cargaExcel.resumen.desconocidos.length > 0 && (
+              <span
+                className="rounded-full bg-[#f59e0b]/15 px-3 py-1 text-[#b45309]"
+                title={cargaExcel.resumen.desconocidos.slice(0, 20).join(", ")}
+              >
+                {cargaExcel.resumen.desconocidos.length} SKU no encontrados
+              </span>
+            )}
+            {cargaExcel.resumen.invalidas > 0 && (
+              <span className="rounded-full bg-fenix-600/10 px-3 py-1 text-fenix-600">
+                {cargaExcel.resumen.invalidas} filas con cantidad inválida
+              </span>
+            )}
+            <span className="rounded-full bg-slate-100 px-3 py-1 text-slate-500">
+              {cargaExcel.resumen.sinCantidad} sin cantidad (ignoradas)
+            </span>
+          </div>
+        )}
       </div>
 
       {/* Líneas del documento (grilla estándar) */}

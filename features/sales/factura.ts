@@ -37,11 +37,21 @@ export const esCondicionValida = (v: string): v is CondicionPago =>
  *
  * Si algún día se decide que el precio de lista ya trae IVA, el cambio es acá: el neto
  * pasaría a ser `Math.round(bruto / 1.19)` y ninguna otra parte del módulo se toca.
+ *
+ * El descuento se resta del neto **antes** de calcular el IVA, que es como corresponde
+ * tributariamente: rebajarlo del total ya con impuesto significaría enterar al SII un IVA
+ * mayor al que se cobró. `netoBruto` se devuelve aparte para que las pantallas puedan
+ * mostrar la rebaja en su propia línea.
  */
-export function totalesFactura(lineas: { cantidad: number; precioUnitario: number }[]) {
-  const neto = lineas.reduce((n, l) => n + l.cantidad * l.precioUnitario, 0);
+export function totalesFactura(
+  lineas: { cantidad: number; precioUnitario: number }[],
+  descuento = 0,
+) {
+  const netoBruto = lineas.reduce((n, l) => n + l.cantidad * l.precioUnitario, 0);
+  const rebaja = Math.min(Math.max(Math.round(descuento), 0), netoBruto);
+  const neto = netoBruto - rebaja;
   const iva = Math.round(neto * IVA);
-  return { neto, iva, total: neto + iva };
+  return { netoBruto, descuento: rebaja, neto, iva, total: neto + iva };
 }
 
 /** Vencimiento según la condición de pago. `null` cuando no se puede determinar. */

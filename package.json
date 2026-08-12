@@ -1,6 +1,6 @@
 {
   "name": "b1-fenix-web",
-  "version": "1.1.14",
+  "version": "1.1.15",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -12,7 +12,8 @@
     "db:seed": "prisma db seed",
     "db:usuarios": "tsx prisma/seed-usuarios.ts",
     "db:deploy": "prisma migrate deploy",
-    "db:studio": "prisma studio"
+    "db:studio": "prisma studio",
+    "correo:probar": "tsx scripts/probar-correo.ts"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.9.0",
@@ -25,6 +26,7 @@
     "prisma": "^7.9.0",
     "react": "19.2.4",
     "react-dom": "19.2.4",
+    "transbank-sdk": "^6.0.0",
     "zustand": "^5.0.14"
   },
   "devDependencies": {

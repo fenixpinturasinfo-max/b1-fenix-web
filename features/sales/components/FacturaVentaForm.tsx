@@ -4,6 +4,11 @@ import { useActionState, useState } from "react";
 import { useRouter } from "next/navigation";
 import { emitirFactura, type ActionState } from "../facturaActions";
 import { CONDICIONES_PAGO, totalesFactura, vencimientoDesde } from "../factura";
+import {
+  DescuentoBoton,
+  type DescuentoAplicado,
+} from "@/features/descuentos/components/DescuentoBoton";
+import { montoDesdePorcentaje, type TopeLibre } from "@/lib/descuento";
 import { formatCLP } from "@/lib/format";
 import {
   EditorLineas,
@@ -22,6 +27,8 @@ export interface ClienteFactura {
   nombre: string;
   rut: string;
   condicionPago: string | null;
+  /** Descuento pactado (%). Se precarga solo al elegir el cliente. */
+  descuentoPorcentaje: number;
 }
 
 /** Pedido disponible para copiar o vincular */
@@ -53,6 +60,8 @@ export function FacturaVentaForm({
   stocks,
   pedidos,
   pedidoInicial,
+  puedeDescontar,
+  tope,
 }: {
   clientes: ClienteFactura[];
   productos: ProductoFactura[];
@@ -64,6 +73,10 @@ export function FacturaVentaForm({
   pedidos: PedidoDisponible[];
   /** cuando se llega desde "Crear factura" en un pedido */
   pedidoInicial?: PedidoDisponible;
+  /** Si quien emite ya tiene el permiso, el modal no le pide credenciales de supervisor. */
+  puedeDescontar: boolean;
+  /** Tramo que el perfil descuenta sin autorización. */
+  tope: TopeLibre | null;
 }) {
   const router = useRouter();
   const [state, action, pending] = useActionState<ActionState, FormData>(
@@ -75,6 +88,7 @@ export function FacturaVentaForm({
     {},
   );
 
+  const [descuento, setDescuento] = useState<DescuentoAplicado | null>(null);
   const [clienteId, setClienteId] = useState(pedidoInicial?.clienteId ?? "");
   const [localId, setLocalId] = useState(localFijo ?? locales[0]?.id ?? "");
   const [pedidoId, setPedidoId] = useState(pedidoInicial?.id ?? "");
@@ -106,12 +120,19 @@ export function FacturaVentaForm({
 
   const completas = lineas.filter((l) => l.productoId);
   const conError = completas.filter(excede);
-  const { neto, iva, total } = totalesFactura(
+  const clienteSel = clientes.find((c) => c.id === clienteId);
+
+  // El pactado del cliente es un %: se recalcula solo con cada línea que cambia. No se
+  // suma con el manual autorizado: manda el mayor, igual que en el POS y en el servidor.
+  const netoSinRebaja = completas.reduce((n, l) => n + l.cantidad * l.precio, 0);
+  const rebajaCliente = montoDesdePorcentaje(netoSinRebaja, clienteSel?.descuentoPorcentaje ?? 0);
+  const gobiernaCliente = rebajaCliente > 0 && rebajaCliente >= (descuento?.monto ?? 0);
+  const { netoBruto, descuento: rebaja, neto, iva, total } = totalesFactura(
     completas.map((l) => ({ cantidad: l.cantidad, precioUnitario: l.precio })),
+    Math.max(descuento?.monto ?? 0, rebajaCliente),
   );
 
   const vence = vencimientoDesde(new Date(`${fechaEmision}T12:00:00`), condicionPago);
-  const clienteSel = clientes.find((c) => c.id === clienteId);
   const pedidoSel = pedidos.find((p) => p.id === pedidoId) ?? pedidoInicial;
 
   // Solo los pedidos del cliente elegido (o sin ficha) tienen sentido para vincular
@@ -126,6 +147,13 @@ export function FacturaVentaForm({
   return (
     <form action={action} className="space-y-5">
       <input type="hidden" name="lineas" value={JSON.stringify(payload)} />
+      {descuento && (
+        <>
+          <input type="hidden" name="descuento" value={descuento.monto} />
+          <input type="hidden" name="valeDescuento" value={descuento.vale} />
+          <input type="hidden" name="descuentoMotivo" value={descuento.motivo} />
+        </>
+      )}
       <input type="hidden" name="clienteId" value={clienteId} />
       <input type="hidden" name="localId" value={origen} />
       <input type="hidden" name="pedidoId" value={pedidoId} />
@@ -180,7 +208,14 @@ export function FacturaVentaForm({
             ))}
           </select>
           {clienteSel ? (
-            <p className="mt-1 font-mono text-xs text-slate-500">RUT {clienteSel.rut}</p>
+            <p className="mt-1 font-mono text-xs text-slate-500">
+              RUT {clienteSel.rut}
+              {clienteSel.descuentoPorcentaje > 0 && (
+                <span className="ml-1 rounded-full bg-[#f59e0b]/15 px-2 py-0.5 font-sans font-bold text-[#b45309]">
+                  {clienteSel.descuentoPorcentaje}% pactado
+                </span>
+              )}
+            </p>
           ) : (
             <p className="mt-1 text-xs text-slate-400">
               Una factura necesita RUT: no sirve un cliente de paso.
@@ -314,7 +349,37 @@ export function FacturaVentaForm({
           placeholder="Nota / referencia (opcional)"
           className="h-11 min-w-56 flex-1 rounded-xl border border-slate-300 bg-white px-3 text-sm text-navy-950 outline-none focus:border-electric-500"
         />
+        <div className="min-w-52">
+          {/* El descuento rebaja el neto: el IVA se calcula después, sobre el neto ya
+              rebajado. Por eso la base es `netoBruto` y no el total con impuesto. */}
+          <DescuentoBoton
+            base={netoBruto}
+            puedeDescontar={puedeDescontar}
+            tope={tope}
+            descuentoCliente={rebajaCliente}
+            correo={{ contexto: "FACTURA", localId: origen || null, clienteId: clienteId || null }}
+            descuento={descuento}
+            onCambio={setDescuento}
+            etiquetaBase="neto"
+          />
+        </div>
         <dl className="min-w-52 space-y-1 text-sm">
+          {rebaja > 0 && (
+            <div className="flex justify-between gap-8">
+              <dt className="text-slate-500">Neto s/ desc.</dt>
+              <dd className="tabular-nums text-slate-500">{formatCLP(netoBruto)}</dd>
+            </div>
+          )}
+          {rebaja > 0 && (
+            <div className="flex justify-between gap-8">
+              <dt className="text-[#b45309]">
+                {gobiernaCliente
+                  ? `Descuento cliente (${clienteSel!.descuentoPorcentaje}%)`
+                  : "Descuento"}
+              </dt>
+              <dd className="tabular-nums text-[#b45309]">−{formatCLP(rebaja)}</dd>
+            </div>
+          )}
           <div className="flex justify-between gap-8">
             <dt className="text-slate-500">Neto</dt>
             <dd className="font-semibold tabular-nums text-navy-950">{formatCLP(neto)}</dd>
