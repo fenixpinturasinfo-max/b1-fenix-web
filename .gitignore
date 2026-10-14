@@ -45,3 +45,6 @@ next-env.d.ts
 
 # Credenciales internas
 docs/CREDENCIALES.md
+
+# Papelera local (archivos que esperan borrado)
+/_to_delete/

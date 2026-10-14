@@ -16,6 +16,9 @@ const nextConfig: NextConfig = {
   // El indicador de Next Dev Tools solo aparece en desarrollo, pero estorba al revisar
   // la landing y al tomar capturas. Los errores de compilación se siguen mostrando igual.
   devIndicators: false,
+  // Las fotos de producto viajan por Server Action ya reducidas en el navegador (~100-300 KB),
+  // pero el tope por defecto es 1 MB y una foto grande que no se pudo reducir lo supera.
+  experimental: { serverActions: { bodySizeLimit: "5mb" } },
   images: {
     localPatterns: [
       // Imágenes locales sin query string

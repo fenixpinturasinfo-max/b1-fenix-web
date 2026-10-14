@@ -5,6 +5,7 @@ import ExcelJS from "exceljs";
 import { prisma } from "@/lib/prisma";
 import { esRolGlobal } from "@/lib/auth/permissions";
 import { exigirEscritura } from "@/lib/auth/guards";
+import { normalizarImagenProducto } from "@/lib/imagen-producto";
 
 export interface ActionState {
   error?: string;
@@ -44,15 +45,14 @@ export async function crearProducto(
     const codigoBarra = String(formData.get("codigoBarra") ?? "").trim() || null;
     const precioVenta = Math.trunc(Number(formData.get("precioVenta") ?? 0));
     const precioCosto = Math.trunc(Number(formData.get("precioCosto") ?? 0));
-    const imagen = String(formData.get("imagen") ?? "").trim() || null;
+    const imagenRes = normalizarImagenProducto(String(formData.get("imagen") ?? ""));
 
     if (!nombre || !marca || !categoriaId || precioVenta <= 0) {
       return { error: "Completa nombre, marca, categoría y precio de venta." };
     }
     if (precioCosto < 0) return { error: "El precio costo no puede ser negativo." };
-    if (imagen && !imagen.startsWith("http") && !imagen.startsWith("/")) {
-      return { error: "La imagen debe ser una URL (https://…) o ruta local (/productos/…)." };
-    }
+    if (imagenRes.error) return { error: imagenRes.error };
+    const imagen = imagenRes.valor ?? null;
 
     // SKU: usa el ingresado o genera uno a partir de marca + correlativo
     let sku = skuRaw;
@@ -103,7 +103,7 @@ export async function editarProducto(
     const codigoBarra = String(formData.get("codigoBarra") ?? "").trim() || null;
     const precioVenta = Math.trunc(Number(formData.get("precioVenta") ?? 0));
     const precioCosto = Math.trunc(Number(formData.get("precioCosto") ?? 0));
-    const imagen = String(formData.get("imagen") ?? "").trim() || null;
+    const imagenRes = normalizarImagenProducto(String(formData.get("imagen") ?? ""));
     const activo = formData.get("activo") === "on";
 
     if (!productoId) return { error: "Producto no indicado." };
@@ -111,9 +111,8 @@ export async function editarProducto(
       return { error: "Completa nombre, marca, categoría y precio de venta." };
     }
     if (precioCosto < 0) return { error: "El precio costo no puede ser negativo." };
-    if (imagen && !imagen.startsWith("http") && !imagen.startsWith("/")) {
-      return { error: "La imagen debe ser una URL (https://…) o ruta local (/productos/…)." };
-    }
+    if (imagenRes.error) return { error: imagenRes.error };
+    const imagen = imagenRes.valor ?? null;
 
     if (codigoBarra) {
       const cbExiste = await prisma.producto.findUnique({ where: { codigoBarra } });
@@ -615,11 +614,12 @@ export async function previsualizarImportacionProductos(
         marcarError("El precio anterior (oferta) debe ser mayor al precio de venta.");
         return;
       }
-      const imagen = imagenRaw || null;
-      if (imagen && !imagen.startsWith("http") && !imagen.startsWith("/")) {
-        marcarError("La imagen debe ser una URL (https://…) o ruta local (/productos/…).");
+      const imagenRes = normalizarImagenProducto(imagenRaw);
+      if (imagenRes.error) {
+        marcarError(imagenRes.error);
         return;
       }
+      const imagen = imagenRes.valor ?? null;
       const codigoBarra = codigoBarraRaw || null;
       if (codigoBarra && codigosUsadosEnArchivo.has(codigoBarra)) {
         marcarError(`El código de barra ${codigoBarra} está repetido en el archivo.`);

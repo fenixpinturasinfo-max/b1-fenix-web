@@ -2,6 +2,7 @@ import Link from "next/link";
 import { requireSeccion } from "@/lib/auth/guards";
 import { prisma } from "@/lib/prisma";
 import { NuevoSocioModal } from "@/features/partners/components/NuevoSocioModal";
+import { ImportSocios } from "@/features/partners/components/ImportSocios";
 import { SociosList, type SocioItem } from "@/features/partners/components/SociosList";
 
 export default async function SociosPage({
@@ -57,7 +58,10 @@ export default async function SociosPage({
             Proveedores para compras y cotizaciones · Clientes para ventas.
           </p>
         </div>
-        <NuevoSocioModal tipo={tipo} />
+        <div className="flex flex-wrap gap-2">
+          <ImportSocios tipo={tipo} />
+          <NuevoSocioModal tipo={tipo} />
+        </div>
       </div>
 
       {/* Pestañas por tipo */}

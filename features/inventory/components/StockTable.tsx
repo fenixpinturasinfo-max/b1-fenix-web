@@ -4,6 +4,7 @@ import { useActionState, useEffect, useState } from "react";
 import { actualizarParametros, editarProducto, type ActionState } from "../actions";
 import { formatCLP } from "@/lib/format";
 import { Paginacion } from "@/components/ui/Paginacion";
+import { FotoProductoInput } from "./FotoProductoInput";
 
 export interface StockPorLocal {
   cantidad: number;
@@ -159,10 +160,12 @@ function EditModal({
 function EditProductoModal({
   p,
   categorias,
+  subidaDrive,
   onClose,
 }: {
   p: ProductoStock;
   categorias: { id: string; nombre: string }[];
+  subidaDrive: boolean;
   onClose: () => void;
 }) {
   const [state, action, pending] = useActionState<ActionState, FormData>(editarProducto, {});
@@ -241,10 +244,10 @@ function EditProductoModal({
             <input name="precioCosto" type="number" min={0} defaultValue={p.precioCosto} className={input} />
           </div>
           <div className="sm:col-span-2">
-            <label className="mb-1 block text-sm font-semibold text-slate-700">
-              Imagen (URL o /productos/archivo.jpg)
-            </label>
-            <input name="imagen" defaultValue={p.imagen ?? ""} placeholder="https://… o /productos/laca-hs.jpg" className={input} />
+            <span className="mb-1 block text-sm font-semibold text-slate-700">
+              Foto (subir a Drive, o pegar link / ruta /productos/archivo.jpg)
+            </span>
+            <FotoProductoInput defaultValue={p.imagen} subidaDisponible={subidaDrive} />
           </div>
           <label className="flex items-center gap-2 text-sm font-semibold text-slate-700 sm:col-span-2">
             <input
@@ -293,12 +296,15 @@ export function StockTable({
   esAdmin,
   puedeAjustar = true,
   estadoInicial = "TODOS",
+  subidaDrive = false,
 }: {
   productos: ProductoStock[];
   locales: { id: string; comuna: string }[];
   localFijo: string | null; // null = admin elige (incluye consolidado)
   categorias: { id: string; nombre: string }[];
   esAdmin: boolean;
+  /** Si el servidor tiene credenciales de Drive, la ficha muestra "Subir foto". */
+  subidaDrive?: boolean;
   /** Si puede editar mínimos, máximos y ubicación del local. El encargado no. */
   puedeAjustar?: boolean;
   /** Prefiltro al entrar desde el dashboard (?estado=SIN|BAJO) */
@@ -584,6 +590,7 @@ export function StockTable({
               <EditProductoModal
                 p={f.p}
                 categorias={categorias}
+                subidaDrive={subidaDrive}
                 onClose={() => setEditing(null)}
               />
             ) : null;

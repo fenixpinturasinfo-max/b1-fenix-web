@@ -2,6 +2,7 @@ import type { Product } from "../types";
 import { formatCLP } from "@/lib/format";
 import { AddToCartButton } from "@/features/cart/components/AddToCartButton";
 import { locations } from "@/features/stores/data/locations";
+import { ProductImage } from "./ProductImage";
 
 const categoryHue: Record<string, string> = {
   "pinturas-lacas": "from-fenix-600/10 to-cloud",
@@ -24,12 +25,8 @@ export function ProductCard({ product }: { product: Product }) {
         role="img"
         aria-label={`Imagen de ${product.nombre}`}
       >
-        {/* Placeholder visual: lata de pintura estilizada (reemplazar por foto real) */}
-        <svg width="64" height="64" viewBox="0 0 64 64" fill="none" aria-hidden="true" className="opacity-90 transition group-hover:scale-110">
-          <rect x="16" y="18" width="32" height="38" rx="3" fill="#ffffff" stroke="#2a3650" strokeWidth="2" />
-          <rect x="16" y="24" width="32" height="8" fill="#ff4d26" />
-          <path d="M20 18v-4a4 4 0 0 1 4-4h16a4 4 0 0 1 4 4v4" stroke="#2a3650" strokeWidth="2" />
-        </svg>
+        {/* Foto real (link de Drive o URL); si no hay, ícono de lata */}
+        <ProductImage imagen={product.imagen} nombre={product.nombre} />
         {discount && (
           <span className="absolute left-3 top-3 rounded-full bg-fenix-600 px-2.5 py-1 text-xs font-bold text-white">
             -{discount}%

@@ -41,7 +41,8 @@ export async function GET() {
     "5. Si el SKU que escribes ya existe en el catálogo, esa fila actualiza el producto en vez de crear uno nuevo.",
     "6. Precio anterior: complétalo solo si quieres mostrar una oferta (debe ser mayor al precio de venta).",
     "7. El stock por local no se carga aquí: se ingresa después con una Entrada de inventario, por local.",
-    "8. Guarda el archivo en formato .xlsx (no lo conviertas a CSV) y súbelo en \"Importar productos\".",
+    "8. Imagen (URL): pega el link \"Compartir\" de la foto en la carpeta Inventario de Google Drive (clic derecho → Compartir → Copiar enlace). La carpeta debe estar compartida como \"Cualquier persona con el enlace\". También puedes subir la foto después desde la ficha del producto con el botón \"Subir foto\".",
+    "9. Guarda el archivo en formato .xlsx (no lo conviertas a CSV) y súbelo en \"Importar productos\".",
   ];
   lineas.forEach((l, i) => {
     const row = instrucciones.getRow(i + 1);

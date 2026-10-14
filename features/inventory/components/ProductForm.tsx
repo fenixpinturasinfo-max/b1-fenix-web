@@ -2,6 +2,7 @@
 
 import { useActionState, useEffect, useState } from "react";
 import { crearProducto, type ActionState } from "../actions";
+import { FotoProductoInput } from "./FotoProductoInput";
 
 interface CategoriaOption {
   id: string;
@@ -11,7 +12,14 @@ interface CategoriaOption {
 const input =
   "h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-navy-950 outline-none transition focus:border-electric-500";
 
-export function ProductForm({ categorias }: { categorias: CategoriaOption[] }) {
+export function ProductForm({
+  categorias,
+  subidaDrive = false,
+}: {
+  categorias: CategoriaOption[];
+  /** Si el servidor tiene credenciales de Drive, muestra el botón "Subir foto". */
+  subidaDrive?: boolean;
+}) {
   const [abierto, setAbierto] = useState(false);
   const [sucio, setSucio] = useState(false);
   const [state, action, pending] = useActionState<ActionState, FormData>(crearProducto, {});
@@ -130,11 +138,11 @@ export function ProductForm({ categorias }: { categorias: CategoriaOption[] }) {
                 </label>
                 <input id="p-cb" name="codigoBarra" placeholder="Escanea aquí" className={input} />
               </div>
-              <div>
-                <label htmlFor="p-img" className="mb-1 block text-sm font-semibold text-slate-700">
-                  Imagen (URL o /productos/archivo.jpg)
-                </label>
-                <input id="p-img" name="imagen" placeholder="https://… o /productos/laca-hs.jpg" className={input} />
+              <div className="sm:col-span-2">
+                <span className="mb-1 block text-sm font-semibold text-slate-700">
+                  Foto (subir a Drive, o pegar link / ruta /productos/archivo.jpg)
+                </span>
+                <FotoProductoInput subidaDisponible={subidaDrive} />
               </div>
 
               <div className="flex items-center gap-2 sm:col-span-2">

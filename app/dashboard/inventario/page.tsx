@@ -2,6 +2,7 @@ import Link from "next/link";
 import { esRolGlobal } from "@/lib/auth/permissions";
 import { requireSeccionConNivel } from "@/lib/auth/guards";
 import { prisma } from "@/lib/prisma";
+import { driveConfigurado } from "@/lib/drive";
 import { getCategorias, getLocalesActivos } from "@/lib/cache";
 import {
   StockTable,
@@ -21,6 +22,8 @@ export default async function InventarioPage({
   // En solo lectura consulta el stock, pero no define mínimos ni ubicaciones
   const { session, escribe: ajusta } = await requireSeccionConNivel("inventario.productos");
   const { estado } = await searchParams;
+  // El botón "Subir foto" solo tiene sentido si el servidor tiene credenciales de Drive
+  const subidaDrive = driveConfigurado();
   const estadoInicial = ESTADOS.includes(estado as EstadoStock)
     ? (estado as EstadoStock)
     : "TODOS";
@@ -86,7 +89,7 @@ export default async function InventarioPage({
         {ajusta && (
           <div className="flex flex-wrap gap-2">
             <ImportProductos />
-            <ProductForm categorias={categorias.map((c) => ({ id: c.id, nombre: c.nombre }))} />
+            <ProductForm categorias={categorias.map((c) => ({ id: c.id, nombre: c.nombre }))} subidaDrive={subidaDrive} />
           </div>
         )}
       </div>
@@ -99,6 +102,7 @@ export default async function InventarioPage({
         esAdmin={ajusta}
         puedeAjustar={ajusta}
         estadoInicial={estadoInicial}
+        subidaDrive={subidaDrive}
       />
     </div>
   );
